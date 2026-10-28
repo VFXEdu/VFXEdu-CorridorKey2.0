@@ -44,6 +44,9 @@ While the official CorridorKey 2.0 repository provides a command-line interface,
 6. **🎬 Foundry Nuke Native Gizmo Integration**:
    - Ships with `CorridorKeyer.gizmo`, Python bridge, and `menu.py` inside `nuke/`.
    - Run AI keying directly inside Nuke with 16-bit float linear OpenEXR sequences and automatic DAG node tree generation (`Read` + `Copy` + `Premult`).
+7. **🎞️ DaVinci Resolve Edit & Color Integration**:
+   - 1-click timeline keying directly from the Edit or Color page (`Workspace -> Scripts -> CorridorKeyer`).
+   - Renders native Apple ProRes 4444 (RGBA) and automatically imports to Media Pool and overlays on Track V2.
 
 ---
 
@@ -73,6 +76,7 @@ Corridor Digital의 혁신적인 AI 그린스크린 제거 엔진 CorridorKey 2.
 * **실시간 GPU 점유율 모니터링**: 상단 배지 및 인스펙터에서 실시간 GPU VRAM 사용량을 1.5초 주기로 확인.
 * **대화형 브러시 마스크 편집기**: 영상의 특정 프레임을 보고 대상 인물/물체를 직접 브러시로 칠해 첫 프레임 마스크(`FrameHint.png`)로 등록.
 * **🎬 Foundry Nuke 전용 기즈모(Gizmo) 노드 기본 탑재**: 누크 노드 그래프에서 `CorridorKeyer` 노드로 직접 키잉을 수행하고 씬 리니어 16비트 EXR 시퀀스 및 컴포지팅 노드 트리 자동 생성 (`nuke/` 폴더 참조).
+* **🎞️ DaVinci Resolve 에디트 & 컬러 페이지 원클릭 연동**: 타임라인에서 클립 선택 후 `Workspace -> Scripts -> CorridorKeyer` 클릭 한 번으로 키잉 실행. ProRes 4444 알파 영상 렌더링 후 V2 트랙 및 미디어 풀 자동 배치 (`resolve/` 폴더 참조).
 * **다국어 실시간 전환**: 영어(기본)와 한국어를 프로그램 재시작 없이 즉시 전환.
 
 ### 🚀 사용 방법
