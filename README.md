@@ -41,6 +41,9 @@ While the official CorridorKey 2.0 repository provides a command-line interface,
    - Fully localized in **English (Default)** and **Korean (한국어)** with instant runtime toggle without restart.
 5. **📦 AI Model Manager**:
    - Visual dashboard to inspect and download foundation model checkpoints (CorridorKey v2, C-RADIOv4, MoGe-2, RVM) in one click.
+6. **🎬 Foundry Nuke Native Gizmo Integration**:
+   - Ships with `CorridorKeyer.gizmo`, Python bridge, and `menu.py` inside `nuke/`.
+   - Run AI keying directly inside Nuke with 16-bit float linear OpenEXR sequences and automatic DAG node tree generation (`Read` + `Copy` + `Premult`).
 
 ---
 
@@ -69,6 +72,7 @@ Corridor Digital의 혁신적인 AI 그린스크린 제거 엔진 CorridorKey 2.
 * **VFX 워크벤치 GUI**: 대형 체커보드 뷰포트, 실시간 와이프(Wipe) 분할 비교 슬라이더, 비주얼 필름스트립 스크러버 탑재.
 * **실시간 GPU 점유율 모니터링**: 상단 배지 및 인스펙터에서 실시간 GPU VRAM 사용량을 1.5초 주기로 확인.
 * **대화형 브러시 마스크 편집기**: 영상의 특정 프레임을 보고 대상 인물/물체를 직접 브러시로 칠해 첫 프레임 마스크(`FrameHint.png`)로 등록.
+* **🎬 Foundry Nuke 전용 기즈모(Gizmo) 노드 기본 탑재**: 누크 노드 그래프에서 `CorridorKeyer` 노드로 직접 키잉을 수행하고 씬 리니어 16비트 EXR 시퀀스 및 컴포지팅 노드 트리 자동 생성 (`nuke/` 폴더 참조).
 * **다국어 실시간 전환**: 영어(기본)와 한국어를 프로그램 재시작 없이 즉시 전환.
 
 ### 🚀 사용 방법

@@ -285,8 +285,8 @@ class DesktopTests(unittest.TestCase):
         dlg = gui.AboutLicenseDialog(self.w)
         self.assertIsNotNone(dlg)
         self.assertIn('CorridorKey 2.0', dlg.windowTitle())
-        self.assertEqual(self.w.lbl_version.text(), 'v0.1.1')
-        self.assertIn('v0.1.1', self.w.windowTitle())
+        self.assertEqual(self.w.lbl_version.text(), gui.APP_VERSION)
+        self.assertIn(gui.APP_VERSION, self.w.windowTitle())
         self.assertIn('VFXEdu', self.w.windowTitle())
 
     def test_language_switch_and_persistence(self):

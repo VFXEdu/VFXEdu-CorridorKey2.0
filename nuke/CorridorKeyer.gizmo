@@ -1,0 +1,94 @@
+#! C:/Program Files/Nuke/Nuke.exe -nx
+version 14.0 v1
+Gizmo {
+ inputs 2
+ tile_color 0x1a4a6eff
+ note_font "Verdana Bold"
+ note_font_color 0xffffffff
+ addUserKnob {20 CorridorKeyer l "CorridorKeyer 2.0"}
+ addUserKnob {26 title_lbl l "" +STARTLINE T "<font size='4' color='#00d2ff'><b>⚡ VFXEdu CorridorKey 2.0</b></font> <font color='#888888'>AI Green Screen Keyer</font>"}
+ addUserKnob {22 btn_render l "  🚀 Render CorridorKey Matte  " t "Execute AI inference via CorridorKey 2.0 engine" +STARTLINE T "import corridorkey_nuke\ncorridorkey_nuke.execute_keyer(nuke.thisNode())"}
+ addUserKnob {26 status_lbl l "Status: " T "<font color='#aaaaaa'>Ready to Key</font>"}
+ addUserKnob {26 div1 l "" +STARTLINE}
+ addUserKnob {20 grp_out l "Output Settings" n 1}
+ addUserKnob {2 output_dir l "Output Directory"}
+ output_dir "\[file dirname \[value root.name]]/corridorkey_output"
+ addUserKnob {4 output_format l Format M {exr video}}
+ addUserKnob {4 exr_dtype l "EXR Bit Depth" M {half float}}
+ addUserKnob {4 frame_range l "Frame Range" M {"Input Node Range" "Global Range" Custom}}
+ addUserKnob {3 first_frame l First}
+ first_frame 1001
+ addUserKnob {3 last_frame l Last}
+ last_frame 1100
+ addUserKnob {20 grp_out_end l "" n -1}
+ addUserKnob {20 grp_param l "AI Keying Parameters" n 1}
+ addUserKnob {7 despill_strength l "Despill Strength" R 0 1}
+ despill_strength 0.5
+ addUserKnob {6 auto_vram l "Auto VRAM Profiling" +STARTLINE}
+ auto_vram true
+ addUserKnob {6 low_vram l "Force Low VRAM Mode" +STARTLINE}
+ addUserKnob {3 hann_chunk l "Hann Chunk (Frames)"}
+ hann_chunk 80
+ addUserKnob {3 hann_stride l "Hann Stride (Frames)"}
+ hann_stride 40
+ addUserKnob {6 carry_hint l "Carry Hint to Long Clip" +STARTLINE}
+ carry_hint true
+ addUserKnob {6 linear_workflow l "Scene-Linear HDR Workflow" +STARTLINE}
+ linear_workflow true
+ addUserKnob {20 grp_param_end l "" n -1}
+ addUserKnob {4 import_to_dag l "DAG Integration" M {Both "Update Gizmo Output" "Create Read Nodes in DAG"}}
+ addUserKnob {6 open_folder l "Open Output Folder on Finish" +STARTLINE}
+ addUserKnob {20 tab_sys l "System / Paths"}
+ addUserKnob {2 ck_root l "CorridorKey Root"}
+ addUserKnob {2 python_path l "Python Executable"}
+}
+ Input {
+  inputs 0
+  name Source
+  xpos 0
+  ypos 0
+ }
+ Input {
+  inputs 0
+  name FrameHint
+  number 1
+  xpos 200
+  ypos 0
+ }
+ Read {
+  inputs 0
+  file_type exr
+  file ""
+  name Read_Cutout
+  xpos 100
+  ypos 100
+ }
+ Read {
+  inputs 0
+  file_type exr
+  file ""
+  name Read_FG
+  xpos 220
+  ypos 100
+ }
+ Read {
+  inputs 0
+  file_type exr
+  file ""
+  name Read_Alpha
+  xpos 340
+  ypos 100
+ }
+ Switch {
+  inputs 2
+  which 0
+  name Switch_Output
+  xpos 0
+  ypos 200
+ }
+ Output {
+  name Output1
+  xpos 0
+  ypos 300
+ }
+end_group
