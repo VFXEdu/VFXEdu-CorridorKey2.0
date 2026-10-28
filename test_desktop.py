@@ -10,6 +10,7 @@ from pathlib import Path
 import unittest
 
 import cv2
+import json
 import numpy as np
 
 from PySide6.QtCore import QPointF, QProcess
@@ -468,6 +469,46 @@ class DesktopTests(unittest.TestCase):
         v2 = LooseVersion("4.44.2")
         self.assertTrue(v1 > v2)
         self.assertEqual(str(v1), "4.45.0")
+
+    def test_project_save_and_open(self):
+        """Verify .ckproj project saving, loading, and per-clip options persistence."""
+        # 1. Create two test video clips
+        vid1 = Path(self.temp.name) / 'clip1.mp4'
+        vid2 = Path(self.temp.name) / 'clip2.mp4'
+        for v in (vid1, vid2):
+            writer = cv2.VideoWriter(str(v), cv2.VideoWriter_fourcc(*'mp4v'), 24, (640, 360))
+            writer.write(np.zeros((360, 640, 3), dtype=np.uint8))
+            writer.release()
+
+        self.w.clear_queue()
+        self.w.add_paths([str(vid1), str(vid2)])
+        self.assertEqual(self.w.queue.count(), 2)
+
+        # 2. Modify options for active clip
+        self.w.despill.setValue(0.85)
+        self.w.low_vram.setChecked(True)
+
+        # 3. Save project
+        proj_file = Path(self.temp.name) / 'my_test.ckproj'
+        res = self.w._write_project_file(proj_file)
+        self.assertTrue(res)
+        self.assertTrue(proj_file.is_file())
+
+        # Verify JSON contents
+        data = json.loads(proj_file.read_text(encoding='utf-8'))
+        self.assertEqual(data.get('project_format'), 'corridorkey_project')
+        self.assertEqual(len(data.get('clips', [])), 2)
+
+        # 4. Clear and open project
+        self.w.clear_queue()
+        self.assertEqual(self.w.queue.count(), 0)
+
+        ok = self.w.open_project(proj_file)
+        self.assertTrue(ok)
+        self.assertEqual(self.w.queue.count(), 2)
+        self.assertAlmostEqual(self.w.despill.value(), 0.85, places=2)
+        self.assertTrue(self.w.low_vram.isChecked())
+        self.assertEqual(self.w.current_project_path, proj_file)
 
 
 if __name__ == '__main__':
