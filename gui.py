@@ -1272,6 +1272,32 @@ class Window(QMainWindow):
         self.run_button.clicked.connect(self.run)
         h_deliv_btns.addWidget(self.run_button, 1)
 
+        self.stop_button = QPushButton("⏹ " + tr('btn_stop'))
+        self.stop_button.setToolTip(tr('wb_btn_cancel_tip'))
+        self.stop_button.setStyleSheet("""
+            QPushButton {
+                background: #8b1d1d;
+                border: 1px solid #dc2626;
+                border-radius: 4px;
+                color: #ffffff;
+                font-weight: bold;
+                font-size: 12px;
+                padding: 8px 14px;
+            }
+            QPushButton:hover {
+                background: #dc2626;
+                border-color: #ef4444;
+            }
+            QPushButton:disabled {
+                background: #171a22;
+                border: 1px solid #232835;
+                color: #434c5b;
+            }
+        """)
+        self.stop_button.setEnabled(False)
+        self.stop_button.clicked.connect(self.stop)
+        h_deliv_btns.addWidget(self.stop_button)
+
         self.folder_btn = QPushButton("📁")
         self.folder_btn.setToolTip(tr('btn_open_folder'))
         self.folder_btn.setStyleSheet("background:#1a1e27; border:1px solid #2b3240; color:#8fa3bf; padding:8px 10px; border-radius:4px;")
@@ -1288,10 +1314,6 @@ class Window(QMainWindow):
         self.download_button = QPushButton(tr('btn_download'))
         self.download_button.clicked.connect(self.download)
         self.download_button.setVisible(False)
-        self.stop_button = QPushButton(tr('btn_stop'))
-        self.stop_button.setEnabled(False)
-        self.stop_button.clicked.connect(self.stop)
-        self.stop_button.setVisible(False)
 
         return panel
 
@@ -1320,6 +1342,28 @@ class Window(QMainWindow):
         self.lbl_live_task = QLabel("Ready")
         self.lbl_live_task.setStyleSheet("font-size:11px; font-weight:bold; color:#71e0be; margin-left:14px;")
         h_hdr.addWidget(self.lbl_live_task)
+
+        # Prominent Stop Process button in console drawer (active during execution)
+        self.btn_live_stop = QPushButton("⏹ " + tr('wb_btn_cancel'))
+        self.btn_live_stop.setToolTip(tr('wb_btn_cancel_tip'))
+        self.btn_live_stop.setStyleSheet("""
+            QPushButton {
+                background: #b91c1c;
+                border: 1px solid #ef4444;
+                color: #ffffff;
+                font-weight: bold;
+                font-size: 11px;
+                padding: 2px 10px;
+                border-radius: 3px;
+                margin-left: 10px;
+            }
+            QPushButton:hover {
+                background: #dc2626;
+            }
+        """)
+        self.btn_live_stop.clicked.connect(self.stop)
+        self.btn_live_stop.setVisible(False)
+        h_hdr.addWidget(self.btn_live_stop)
 
         h_hdr.addStretch(1)
 
@@ -1948,7 +1992,11 @@ class Window(QMainWindow):
             self.btn_add_to_queue.setText(tr('wb_btn_add_queue'))
         self.run_button.setText(tr('wb_btn_render'))
         self.run_button.setToolTip(tr('wb_btn_render_tip'))
-        self.stop_button.setText(tr('wb_btn_cancel'))
+        self.stop_button.setText("⏹ " + tr('btn_stop'))
+        self.stop_button.setToolTip(tr('wb_btn_cancel_tip'))
+        if hasattr(self, 'btn_live_stop'):
+            self.btn_live_stop.setText("⏹ " + tr('btn_stop'))
+            self.btn_live_stop.setToolTip(tr('wb_btn_cancel_tip'))
 
         if self.proc.state() == QProcess.NotRunning:
             self.status.setText(tr('status_ready'))
@@ -2224,18 +2272,19 @@ class Window(QMainWindow):
         )
 
     def busy(self, value: bool):
-        self.run_button.setEnabled(not value)
         if hasattr(self, 'btn_batch_render'):
             self.btn_batch_render.setEnabled(not value)
         self.btn_add_vid.setEnabled(not value)
         if hasattr(self, 'btn_clear_q'):
             self.btn_clear_q.setEnabled(not value)
+        if hasattr(self, 'btn_remove_item'):
+            self.btn_remove_item.setEnabled(not value)
+        self.run_button.setEnabled(not value)
         self.stop_button.setEnabled(value)
+        if hasattr(self, 'btn_live_stop'):
+            self.btn_live_stop.setVisible(value)
+
         if value:
-            self.run_button.setText(tr("wb_btn_cancel"))
-            self.run_button.setStyleSheet("background:#c53030; color:#ffffff; font-weight:bold; font-size:12px; padding:8px 20px; border-radius:4px;")
-            self.run_button.clicked.disconnect()
-            self.run_button.clicked.connect(self.stop)
             if hasattr(self, 'console_drawer'):
                 self.console_drawer.setVisible(True)
                 self.log.setVisible(True)
@@ -2246,23 +2295,6 @@ class Window(QMainWindow):
             if hasattr(self, 'lbl_live_task'):
                 self.lbl_live_task.setText("Process launching...")
         else:
-            self.run_button.setText(tr("wb_btn_render"))
-            self.run_button.setStyleSheet("""
-                QPushButton {
-                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #d4952b, stop:1 #f0b842);
-                    border: 1px solid #f5b642;
-                    border-radius: 4px;
-                    color: #111317;
-                    font-weight: 800;
-                    font-size: 13px;
-                    padding: 8px 20px;
-                }
-                QPushButton:hover {
-                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #e5a93c, stop:1 #ffd066);
-                }
-            """)
-            self.run_button.clicked.disconnect()
-            self.run_button.clicked.connect(self.run)
             if hasattr(self, 'lbl_live_task'):
                 self.lbl_live_task.setText("Ready")
             if hasattr(self, 'progress'):
@@ -2501,8 +2533,7 @@ class Window(QMainWindow):
                             card.set_status("READY")
                         break
             self.status.setText(tr('status_stopped'))
-            if self.killer.state() == QProcess.NotRunning:
-                self.busy(False)
+            self.busy(False)
             return
 
         if code != 0 or exit_status != QProcess.NormalExit:
@@ -2568,17 +2599,37 @@ class Window(QMainWindow):
                         card.set_status("READY")
                     break
         self.status.setText(tr('status_stopping'))
+        if hasattr(self, 'lbl_live_task'):
+            self.lbl_live_task.setText("Stopping...")
+
         pid = self.proc.processId()
-        if pid and os.name == 'nt':
-            self.killer.start('taskkill', ['/PID', str(pid), '/T', '/F'])
-        else:
+        if pid and pid > 0 and os.name == 'nt':
+            try:
+                import subprocess
+                subprocess.run(
+                    ['taskkill', '/PID', str(pid), '/T', '/F'],
+                    capture_output=True,
+                    timeout=5,
+                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000)
+                )
+            except Exception as exc:
+                self.log.appendPlainText(f"[WARN] taskkill exception: {exc}")
+
+        if self.proc.state() != QProcess.NotRunning:
             self.proc.kill()
+            self.proc.waitForFinished(1000)
+
+        # Immediate clean exit to idle state
+        self.busy(False)
+        self.status.setText(tr('status_stopped'))
+        if hasattr(self, 'lbl_live_task'):
+            self.lbl_live_task.setText("Stopped")
+        if hasattr(self, 'queue_info') and self.current_source:
+            self.queue_info.setText(tr('wb_queue_ready_active', name=self.current_source.name))
+        self.log.appendPlainText(tr('status_stopped'))
 
     def kill_finished(self, code, status):
-        if self.proc.state() == QProcess.NotRunning:
-            self.busy(False)
-        elif code != 0:
-            self.log.appendPlainText(tr('log_kill_failed'))
+        self.busy(False)
 
     def open_output(self):
         path = self.destination or Path(self.output.text())

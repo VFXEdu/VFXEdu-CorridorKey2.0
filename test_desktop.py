@@ -226,6 +226,28 @@ class DesktopTests(unittest.TestCase):
                 kernel.CloseHandle(handle)
                 self.assertNotEqual(result.value, 259, 'Child process still active')
 
+    def test_busy_stop_buttons_enabled_and_clickable(self):
+        """Verify that when engine is busy, stop_button is ENABLED in Deliver dock and console drawer."""
+        self.w.busy(True)
+        # 1. run_button is disabled during execution
+        self.assertFalse(self.w.run_button.isEnabled())
+
+        # 2. Dedicated Stop button in Deliver dock MUST be enabled
+        self.assertTrue(self.w.stop_button.isEnabled())
+        self.assertTrue('stop' in self.w.stop_button.text().lower() or '중지' in self.w.stop_button.text())
+
+        # 3. Live stop button in console drawer MUST be not hidden
+        self.assertFalse(self.w.btn_live_stop.isHidden())
+
+        # 4. Clicking stop_button in busy state triggers stop
+        stopped = []
+        self.w.stop = lambda: stopped.append(True)
+        self.w.stop_button.click()
+        self.assertTrue(len(stopped) > 0)
+        self.w.busy(False)
+        self.assertTrue(self.w.run_button.isEnabled())
+        self.assertFalse(self.w.stop_button.isEnabled())
+
     def test_about_license_dialog(self):
         dlg = gui.AboutLicenseDialog(self.w)
         self.assertIsNotNone(dlg)
