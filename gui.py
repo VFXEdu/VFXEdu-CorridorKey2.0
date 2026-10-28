@@ -1239,14 +1239,17 @@ class Window(QMainWindow):
         self.lbl_deliver_vram.setStyleSheet("color:#7e8b9d; font-size:10px;")
         v_deliv.addWidget(self.lbl_deliver_vram)
 
-        # Action Buttons: [Add to queue] [Render]
+        # Action Buttons: [Render All] [Render] [📁]
         h_deliv_btns = QHBoxLayout()
-        self.btn_add_to_queue = QPushButton(tr("wb_btn_add_queue"))
-        self.btn_add_to_queue.setStyleSheet("background:#1a1e27; border:1px solid #2b3240; color:#c9d1d9; padding:8px 12px; border-radius:4px; font-weight:bold; font-size:11px;")
-        self.btn_add_to_queue.clicked.connect(self._on_add_to_queue_clicked)
-        h_deliv_btns.addWidget(self.btn_add_to_queue)
+        self.btn_batch_render = QPushButton(tr("wb_btn_render_all"))
+        self.btn_batch_render.setToolTip(tr("wb_btn_render_all_tip"))
+        self.btn_batch_render.setStyleSheet("background:#1a1e27; border:1px solid #2b3240; color:#c9d1d9; padding:8px 12px; border-radius:4px; font-weight:bold; font-size:11px;")
+        self.btn_batch_render.clicked.connect(self.run_all)
+        self.btn_add_to_queue = self.btn_batch_render  # backward compatibility alias
+        h_deliv_btns.addWidget(self.btn_batch_render)
 
         self.run_button = QPushButton(tr("wb_btn_render"))
+        self.run_button.setToolTip(tr("wb_btn_render_tip"))
         self.run_button.setStyleSheet("""
             QPushButton {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #d4952b, stop:1 #f0b842);
@@ -1470,6 +1473,10 @@ class Window(QMainWindow):
             card = self.queue.itemWidget(item)
             if isinstance(card, MediaCardWidget):
                 card.set_selected(i == index)
+
+        # Update queue status line when idle
+        if hasattr(self, 'queue_info') and not getattr(self, 'jobs', None) and self.proc.state() == QProcess.NotRunning:
+            self.queue_info.setText(tr('wb_queue_ready_active', name=clip_path.name))
 
         # Synchronize hidden legacy preview
         self.original.load(clip_path)
@@ -1715,7 +1722,7 @@ class Window(QMainWindow):
             self.status.setText("🚀 Deliver & Export dock focused")
 
     def _on_add_to_queue_clicked(self):
-        self.queue_info.setText(f"Added {self.queue.count()} clip(s) to render queue. Ready to render.")
+        self.run_all()
 
     # =========================================================================
     # Retranslate UI
@@ -1934,8 +1941,13 @@ class Window(QMainWindow):
         for btn in self.browse_buttons:
             btn.setText(tr('btn_browse'))
 
-        self.btn_add_to_queue.setText(tr('wb_btn_add_queue'))
+        if hasattr(self, 'btn_batch_render'):
+            self.btn_batch_render.setText(tr('wb_btn_render_all'))
+            self.btn_batch_render.setToolTip(tr('wb_btn_render_all_tip'))
+        elif hasattr(self, 'btn_add_to_queue'):
+            self.btn_add_to_queue.setText(tr('wb_btn_add_queue'))
         self.run_button.setText(tr('wb_btn_render'))
+        self.run_button.setToolTip(tr('wb_btn_render_tip'))
         self.stop_button.setText(tr('wb_btn_cancel'))
 
         if self.proc.state() == QProcess.NotRunning:
@@ -2037,11 +2049,13 @@ class Window(QMainWindow):
                         'f0_rgb': f0_rgb,
                     }
 
-        if added and self.queue.currentRow() < 0:
-            self.queue.setCurrentRow(0)
-
         if added:
-            self.auto_detect_companion_hint(added[0])
+            # Focus, preview, and load companion hint for the newly added clip
+            new_idx = self.queue.count() - 1
+            if self.queue.currentRow() == new_idx:
+                self.preview_input(new_idx)
+            else:
+                self.queue.setCurrentRow(new_idx)
 
     def auto_detect_companion_hint(self, clip_path: Path):
         """Automatically find <clip>FrameHint.png or <clip>_AlphaHint.mp4."""
@@ -2077,6 +2091,11 @@ class Window(QMainWindow):
         row = self.queue.currentRow()
         if row >= 0:
             self.queue.takeItem(row)
+            if self.queue.count() > 0:
+                new_row = min(row, self.queue.count() - 1)
+                self.queue.setCurrentRow(new_row)
+            else:
+                self.clear_queue()
 
     def clear_queue(self):
         self.queue.clear()
@@ -2084,6 +2103,8 @@ class Window(QMainWindow):
         self.lbl_active_clip.setText("")
         self.viewport.set_images(None, None, None)
         self.filmstrip.load_clip_metadata(0, 24.0, [])
+        if hasattr(self, 'queue_info'):
+            self.queue_info.setText(tr('wb_queue_empty'))
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
@@ -2204,7 +2225,11 @@ class Window(QMainWindow):
 
     def busy(self, value: bool):
         self.run_button.setEnabled(not value)
+        if hasattr(self, 'btn_batch_render'):
+            self.btn_batch_render.setEnabled(not value)
         self.btn_add_vid.setEnabled(not value)
+        if hasattr(self, 'btn_clear_q'):
+            self.btn_clear_q.setEnabled(not value)
         self.stop_button.setEnabled(value)
         if value:
             self.run_button.setText(tr("wb_btn_cancel"))
@@ -2260,41 +2285,113 @@ class Window(QMainWindow):
             interpreter = interpreter.with_name('python.exe')
         self.proc.start(str(interpreter), args)
 
-    def run(self):
-        try:
-            if not self.queue.count():
-                raise ValueError(tr('msg_error_input_required'))
-            if self.hint_mode.currentData() and self.queue.count() != 1:
-                raise ValueError(tr('msg_error_hint_single'))
-            if not self.output.text().strip():
-                raise ValueError(tr('msg_error_output_required'))
+    def _validate_run_prerequisites(self) -> bool:
+        if not self.queue.count():
+            raise ValueError(tr('msg_error_input_required'))
+        if not self.output.text().strip():
+            raise ValueError(tr('msg_error_output_required'))
 
-            missing_req = get_missing_required_models(ROOT)
-            if missing_req:
-                ret = QMessageBox.question(
-                    self,
-                    tr('prompt_missing_req_title'),
-                    tr('prompt_missing_req_msg', models='\n'.join(f'• {m}' for m in missing_req)),
-                    QMessageBox.Yes | QMessageBox.No,
-                    QMessageBox.Yes
-                )
-                if ret == QMessageBox.Yes:
-                    self.show_model_manager(initial_target='required')
+        missing_req = get_missing_required_models(ROOT)
+        if missing_req:
+            ret = QMessageBox.question(
+                self,
+                tr('prompt_missing_req_title'),
+                tr('prompt_missing_req_msg', models='\n'.join(f'• {m}' for m in missing_req)),
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            )
+            if ret == QMessageBox.Yes:
+                self.show_model_manager(initial_target='required')
+            return False
+        return True
+
+    def run(self):
+        """Render the active clip currently previewed and edited in the Viewport."""
+        try:
+            if not self._validate_run_prerequisites():
                 return
 
+            row = self.queue.currentRow()
+            if row < 0 and self.queue.count() > 0:
+                row = 0
+                self.queue.setCurrentRow(0)
+
+            if row < 0 or row >= self.queue.count():
+                raise ValueError(tr('msg_error_input_required'))
+
+            source = Path(self.queue.item(row).text())
             opts = self.options()
+            dest = Path(self.output.text()).resolve() / (
+                source.stem + '_' + datetime.now().strftime('%Y%m%d_%H%M%S') + '_' + uuid.uuid4().hex[:6]
+            )
+            args = make_arguments(source, dest, opts)
+
+            self.jobs = [(source, dest, args, opts)]
+            self.total = 1
+            self.cancelled = False
+            if hasattr(self, 'queue_info'):
+                self.queue_info.setText(tr('wb_queue_rendering_active', name=source.name))
+            self.next_job()
+        except Exception as exc:
+            QMessageBox.warning(self, tr('msg_config_check'), str(exc))
+
+    def run_all(self):
+        """Batch render all clips in the Media Bin sequentially."""
+        try:
+            if not self._validate_run_prerequisites():
+                return
+
+            base_opts = self.options()
+            active_hint = base_opts.get('hint', '')
+
+            # Check if active hint is clip-specific
+            if base_opts.get('hint_mode') and self.queue.count() > 1 and active_hint:
+                f_comp = find_first_frame_hint(self.current_clip_path) if self.current_clip_path else None
+                v_comp = find_alpha_hint_video(self.current_clip_path) if self.current_clip_path else None
+                is_companion = (
+                    (f_comp and str(f_comp.resolve()) == active_hint) or
+                    (v_comp and str(v_comp.resolve()) == active_hint)
+                )
+                if not is_companion:
+                    ret = QMessageBox.question(
+                        self,
+                        tr('msg_warn_title'),
+                        tr('msg_hint_batch_warn'),
+                        QMessageBox.Yes | QMessageBox.No,
+                        QMessageBox.No
+                    )
+                    if ret != QMessageBox.Yes:
+                        return
+
             jobs = []
             for i in range(self.queue.count()):
                 source = Path(self.queue.item(i).text())
+                clip_opts = dict(base_opts)
+
+                # For batch processing, auto-bind companion hint for each clip if not fixed
+                f_hint = find_first_frame_hint(source)
+                v_hint = find_alpha_hint_video(source)
+                if f_hint:
+                    clip_opts['hint_mode'] = '--hint_first_frame'
+                    clip_opts['hint'] = str(f_hint.resolve())
+                elif v_hint:
+                    clip_opts['hint_mode'] = '--hint_alpha_video'
+                    clip_opts['hint'] = str(v_hint.resolve())
+                else:
+                    clip_opts['hint_mode'] = ''
+                    clip_opts['hint'] = ''
+
                 dest = Path(self.output.text()).resolve() / (
                     source.stem + '_' + datetime.now().strftime('%Y%m%d_%H%M%S') + '_' + uuid.uuid4().hex[:6]
                 )
-                args = make_arguments(source, dest, opts)
-                jobs.append((source, dest, args, opts))
+                args = make_arguments(source, dest, clip_opts)
+                jobs.append((source, dest, args, clip_opts))
 
             self.jobs = jobs
             self.total = len(jobs)
             self.cancelled = False
+            if hasattr(self, 'queue_info') and jobs:
+                self.queue_info.setText(tr('wb_queue_rendering_batch', current=1, total=self.total, name=jobs[0][0].name))
             self.next_job()
         except Exception as exc:
             QMessageBox.warning(self, tr('msg_config_check'), str(exc))
@@ -2302,6 +2399,21 @@ class Window(QMainWindow):
     def next_job(self):
         source, self.destination, args, self.current_opts = self.jobs.pop(0)
         self.current_source = source
+
+        # Synchronize UI selection, Viewport, and Filmstrip to this source clip
+        for i in range(self.queue.count()):
+            item = self.queue.item(i)
+            if Path(item.text()).resolve() == source.resolve():
+                if self.queue.currentRow() != i:
+                    self.queue.blockSignals(True)
+                    self.queue.setCurrentRow(i)
+                    self.preview_input(i)
+                    self.queue.blockSignals(False)
+                card = self.queue.itemWidget(item)
+                if isinstance(card, MediaCardWidget):
+                    card.set_status("PROCESSING")
+                break
+
         try:
             self.destination.mkdir(parents=True, exist_ok=False)
             (self.destination / 'gui_job.json').write_text(
@@ -2314,7 +2426,13 @@ class Window(QMainWindow):
             self.status.setText(tr('status_mkdir_failed', err=str(exc)))
             return
 
-        self.status.setText(tr('status_processing', current=self.total - len(self.jobs), total=self.total, name=source.name))
+        current_idx = self.total - len(self.jobs)
+        self.status.setText(tr('status_processing', current=current_idx, total=self.total, name=source.name))
+        if hasattr(self, 'queue_info'):
+            if self.total > 1:
+                self.queue_info.setText(tr('wb_queue_rendering_batch', current=current_idx, total=self.total, name=source.name))
+            else:
+                self.queue_info.setText(tr('wb_queue_rendering_active', name=source.name))
         self.log.appendPlainText(tr('log_job_start', name=source.name, src=source, dst=self.destination))
         self.launch(args, 'inference')
 
@@ -2374,16 +2492,42 @@ class Window(QMainWindow):
         self.read_log()
         if self.cancelled:
             self.jobs.clear()
+            if self.current_source:
+                for i in range(self.queue.count()):
+                    item = self.queue.item(i)
+                    if Path(item.text()).resolve() == self.current_source.resolve():
+                        card = self.queue.itemWidget(item)
+                        if isinstance(card, MediaCardWidget):
+                            card.set_status("READY")
+                        break
             self.status.setText(tr('status_stopped'))
             if self.killer.state() == QProcess.NotRunning:
                 self.busy(False)
             return
 
         if code != 0 or exit_status != QProcess.NormalExit:
+            if self.current_source:
+                for i in range(self.queue.count()):
+                    item = self.queue.item(i)
+                    if Path(item.text()).resolve() == self.current_source.resolve():
+                        card = self.queue.itemWidget(item)
+                        if isinstance(card, MediaCardWidget):
+                            card.set_status("READY")
+                        break
             self.jobs.clear()
             self.busy(False)
             self.status.setText(tr('status_failed', code=code))
             return
+
+        # Mark processed clip as DONE
+        if self.current_source:
+            for i in range(self.queue.count()):
+                item = self.queue.item(i)
+                if Path(item.text()).resolve() == self.current_source.resolve():
+                    card = self.queue.itemWidget(item)
+                    if isinstance(card, MediaCardWidget):
+                        card.set_status("DONE")
+                    break
 
         if self.destination:
             for path in sorted(self.destination.iterdir()):
@@ -2393,9 +2537,9 @@ class Window(QMainWindow):
                         self.result_choice.addItem(entry, str(path))
             if self.result_choice.count():
                 self.result_choice.setCurrentIndex(self.result_choice.count() - 1)
-            # Re-detect results for active clip
-            if self.current_clip_path:
-                self._detect_matched_results(self.current_clip_path)
+            # Re-detect results for active source clip
+            if self.current_source:
+                self._detect_matched_results(self.current_source)
                 self.show_frame_in_viewport(self.filmstrip.current_frame)
 
             if self.jobs:
@@ -2409,10 +2553,20 @@ class Window(QMainWindow):
             'download': tr('status_download_done'),
             'check': tr('status_check_passed'),
         }.get(self.mode, tr('status_done')))
+        if hasattr(self, 'queue_info') and self.current_source:
+            self.queue_info.setText(tr('wb_queue_ready_active', name=self.current_source.name))
 
     def stop(self):
         self.cancelled = True
         self.jobs.clear()
+        if self.current_source:
+            for i in range(self.queue.count()):
+                item = self.queue.item(i)
+                if Path(item.text()).resolve() == self.current_source.resolve():
+                    card = self.queue.itemWidget(item)
+                    if isinstance(card, MediaCardWidget):
+                        card.set_status("READY")
+                    break
         self.status.setText(tr('status_stopping'))
         pid = self.proc.processId()
         if pid and os.name == 'nt':

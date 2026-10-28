@@ -276,6 +276,88 @@ class DesktopTests(unittest.TestCase):
         self.w.original.slider.setValue(3)
         self.assertTrue('frame 4' in self.w.original.caption.text().lower() or '프레임 4' in self.w.original.caption.text())
 
+    def test_multi_clip_active_selection_and_run_order(self):
+        """Verify that when multiple clips are loaded, the active clip in the viewer is prioritized for Render."""
+        clip1 = Path(self.temp.name) / 'clip_first.mp4'
+        clip2 = Path(self.temp.name) / 'clip_second.mp4'
+        for c in (clip1, clip2):
+            writer = cv2.VideoWriter(str(c), cv2.VideoWriter_fourcc(*'mp4v'), 24, (160, 90))
+            writer.write(np.zeros((90, 160, 3), dtype=np.uint8))
+            writer.release()
+
+        # 1. Add clip1
+        self.w.add_paths([str(clip1)])
+        self.assertEqual(self.w.queue.count(), 1)
+        self.assertEqual(self.w.current_clip_path.resolve(), clip1.resolve())
+
+        # 2. Add clip2: it must automatically become active and selected
+        self.w.add_paths([str(clip2)])
+        self.assertEqual(self.w.queue.count(), 2)
+        self.assertEqual(self.w.current_clip_path.resolve(), clip2.resolve())
+        self.assertEqual(self.w.queue.currentRow(), 1)
+
+        # 3. Selecting clip1 switches active clip back to clip1
+        self.w.queue.setCurrentRow(0)
+        self.assertEqual(self.w.current_clip_path.resolve(), clip1.resolve())
+
+        # 4. Switch back to clip2 and trigger run()
+        self.w.queue.setCurrentRow(1)
+        self.assertEqual(self.w.current_clip_path.resolve(), clip2.resolve())
+
+        # Mock launch to inspect what job was scheduled without starting inference subprocess
+        scheduled_args = []
+        def fake_launch(args, mode):
+            scheduled_args.extend(args)
+            self.w.busy(False)
+        self.w.launch = fake_launch
+
+        self.w.output.setText(self.temp.name)
+        self.w.run()
+
+        # Verify that clip2 (active in viewer) was executed, NOT clip1 (at the top)
+        self.assertEqual(self.w.current_source.resolve(), clip2.resolve())
+        self.assertIn(str(clip2), scheduled_args)
+        self.assertNotIn(str(clip1), scheduled_args)
+
+        # 5. Verify hint execution works seamlessly even when multiple clips are in queue
+        hint_dummy = Path(self.temp.name) / 'clip_secondFrameHint.png'
+        hint_dummy.touch()
+        self.w.hint_mode.setCurrentIndex(1)
+        self.w.hint.setText(str(hint_dummy))
+        scheduled_args.clear()
+        self.w.run()
+        self.assertEqual(self.w.current_source.resolve(), clip2.resolve())
+        self.assertIn('--hint_first_frame', scheduled_args)
+        self.assertIn(str(hint_dummy), scheduled_args)
+
+    def test_multi_clip_batch_run_all(self):
+        """Verify that run_all() processes all clips and updates active tracking."""
+        clip1 = Path(self.temp.name) / 'batch_a.mp4'
+        clip2 = Path(self.temp.name) / 'batch_b.mp4'
+        for c in (clip1, clip2):
+            writer = cv2.VideoWriter(str(c), cv2.VideoWriter_fourcc(*'mp4v'), 24, (160, 90))
+            writer.write(np.zeros((90, 160, 3), dtype=np.uint8))
+            writer.release()
+
+        self.w.clear_queue()
+        self.w.add_paths([str(clip1), str(clip2)])
+        self.assertEqual(self.w.queue.count(), 2)
+
+        launched_jobs = []
+        def fake_launch(args, mode):
+            launched_jobs.append(self.w.current_source)
+            self.w.busy(False)
+        self.w.launch = fake_launch
+
+        self.w.output.setText(self.temp.name)
+        self.w.run_all()
+
+        # First job launched
+        self.assertEqual(len(launched_jobs), 1)
+        self.assertEqual(launched_jobs[0].resolve(), clip1.resolve())
+        self.assertEqual(len(self.w.jobs), 1)
+        self.assertEqual(self.w.jobs[0][0].resolve(), clip2.resolve())
+
     def test_model_manager_status_and_dialog(self):
         """Test model manager registry, status checks, and visual dialog components."""
         from model_manager import (

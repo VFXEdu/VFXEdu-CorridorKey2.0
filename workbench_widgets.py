@@ -573,6 +573,7 @@ class MediaCardWidget(QFrame):
         self.lbl_thumb.setFixedSize(96, 60)
         self.lbl_thumb.setStyleSheet("background:#0a0c10; border-radius:4px;")
         self.lbl_thumb.setAlignment(Qt.AlignCenter)
+        self.lbl_thumb.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         layout.addWidget(self.lbl_thumb)
 
         # Details
@@ -591,6 +592,7 @@ class MediaCardWidget(QFrame):
             padding: 1px 6px;
             border-radius: 3px;
         """)
+        self.badge.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         h_badge.addWidget(self.badge)
         h_badge.addStretch(1)
         v_info.addLayout(h_badge)
@@ -598,11 +600,13 @@ class MediaCardWidget(QFrame):
         # Name
         self.lbl_name = QLabel(self.clip_path.name)
         self.lbl_name.setStyleSheet("color:#e1e7ee; font-weight:bold; font-size:12px;")
+        self.lbl_name.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         v_info.addWidget(self.lbl_name)
 
         # Specs
         self.lbl_specs = QLabel("Loading specs...")
         self.lbl_specs.setStyleSheet("color:#768394; font-size:10px;")
+        self.lbl_specs.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         v_info.addWidget(self.lbl_specs)
 
         layout.addLayout(v_info, 1)
