@@ -581,8 +581,9 @@ class Window(QMainWindow):
         self.lbl_logo.setStyleSheet("font-size:16px; color:#e5a93c;")
         h_layout.addWidget(self.lbl_logo)
 
-        self.lbl_title = QLabel("VFXEdu CORRIDORKEY 2.0")
-        self.lbl_title.setStyleSheet("font-size:14px; font-weight:800; color:#e5a93c; letter-spacing:1.5px;")
+        self.lbl_title = QLabel()
+        self.lbl_title.setText("<span style='color:#38bdf8; font-weight:900;'>VFXEdu</span>&nbsp;&nbsp;<span style='color:#e5a93c; font-weight:800;'>CORRIDORKEY 2.0</span>")
+        self.lbl_title.setStyleSheet("font-size:14px; letter-spacing:1.2px;")
         h_layout.addWidget(self.lbl_title)
 
         # Version Pill Badge: "v0.1.1"
@@ -1760,7 +1761,7 @@ class Window(QMainWindow):
     def retranslate_ui(self):
         """Update all UI widget texts dynamically to match current language."""
         self.setWindowTitle(f"{APP_NAME} {APP_VERSION} · {tr('window_title')}")
-        self.lbl_title.setText("VFXEdu CORRIDORKEY 2.0")
+        self.lbl_title.setText("<span style='color:#38bdf8; font-weight:900;'>VFXEdu</span>&nbsp;&nbsp;<span style='color:#e5a93c; font-weight:800;'>CORRIDORKEY 2.0</span>")
         if hasattr(self, 'lbl_version'):
             self.lbl_version.setText(APP_VERSION)
         if hasattr(self, 'lbl_sub'):
