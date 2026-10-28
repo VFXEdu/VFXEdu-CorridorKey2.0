@@ -1,13 +1,12 @@
 # ⚡ VFXEdu CorridorKey 2.0 (v0.1.1)
 ### Professional VFX Workbench Desktop Suite & Zero-Install Portable Keyer
 
-[![GitHub Release](https://img.shields.io/github/v/release/VFXEdu/VFXEdu-CorridorKey2.0?color=38bdf8&label=Release)](https://github.com/VFXEdu/VFXEdu-CorridorKey2.0/releases)
 [![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-e5a93c.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11%20%28x64%29-blue.svg)](https://github.com/VFXEdu/VFXEdu-CorridorKey2.0)
-[![Python](https://img.shields.io/badge/Python-3.12%20%28Embedded%20Portable%29-green.svg)](https://github.com/VFXEdu/VFXEdu-CorridorKey2.0)
+[![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11%20%28x64%29-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.12%20%28Embedded%20Portable%29-green.svg)](LICENSE)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.9.1%2BCUDA12.8-red.svg)](https://pytorch.org/)
 
-[**English**](#english-guide) · [**한국어 안내**](#한국어-안내) · [**GitHub Releases (Download Portable ZIP)**](https://github.com/VFXEdu/VFXEdu-CorridorKey2.0/releases)
+[**English**](#english-guide) · [**한국어 안내**](#한국어-안내)
 
 ---
 
@@ -25,7 +24,7 @@
 <a name="english-guide"></a>
 ## 🌟 What is VFXEdu CorridorKey 2.0?
 
-While the official CorridorKey 2.0 repository provides a great command-line interface, **VFXEdu CorridorKey 2.0** transforms it into a **complete, standalone visual VFX studio app** designed for professional post-production artists and editors:
+While the official CorridorKey 2.0 repository provides a command-line interface, **VFXEdu CorridorKey 2.0** transforms it into a **complete, standalone visual VFX studio app** designed for professional post-production artists and editors:
 
 1. **📦 Zero-Install Portable Runtime (Option A)**:
    - Ships with an isolated **Windows Python 3.12 Embeddable environment** and static **FFmpeg binary**.
@@ -47,8 +46,8 @@ While the official CorridorKey 2.0 repository provides a great command-line inte
 
 ## 🚀 Quick Start (Zero-Install Portable Setup)
 
-### 1. Download & Extract
-Download the portable distribution archive (`CorridorKeyer2.0_Portable_Setup.zip`, ~95 MB) from the **[Releases](https://github.com/VFXEdu/VFXEdu-CorridorKey2.0/releases)** page and extract it to any local folder (e.g. `D:\CorridorKeyer2.0`).
+### 1. Extract Package
+Extract the portable distribution archive (`CorridorKeyer2.0_Portable_Setup.zip`, ~95 MB) to any local directory (e.g. `D:\CorridorKeyer2.0`).
 
 ### 2. Run Setup Once
 Double-click **`Setup_GUI.bat`**.  
@@ -73,33 +72,10 @@ Corridor Digital의 혁신적인 AI 그린스크린 제거 엔진 CorridorKey 2.
 * **다국어 실시간 전환**: 영어(기본)와 한국어를 프로그램 재시작 없이 즉시 전환.
 
 ### 🚀 사용 방법
-1. [Releases](https://github.com/VFXEdu/VFXEdu-CorridorKey2.0/releases)에서 `CorridorKeyer2.0_Portable_Setup.zip`을 다운로드합니다.
-2. 원하는 폴더에 압축을 풉니다.
+1. 제공된 `CorridorKeyer2.0_Portable_Setup.zip` 압축 파일을 다운로드합니다.
+2. 원하는 로컬 폴더에 압축을 풉니다.
 3. `Setup_GUI.bat`를 실행하여 1회 자동 설정을 진행합니다.
 4. `Launch_GUI.bat`를 더블 클릭하여 실행합니다.
-
----
-
-## 💻 CLI & Developer Setup (CLI 고급 사용자)
-
-If you prefer using your own Python virtualenv or CLI pipelines:
-
-```bash
-git clone https://github.com/VFXEdu/VFXEdu-CorridorKey2.0.git
-cd VFXEdu-CorridorKey2.0
-
-python -m venv venv
-venv\Scripts\activate
-
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
-pip install -r requirements.txt
-python scripts/download_weights.py --model required
-```
-
-### CLI Inference
-```bash
-python infer.py --input path/to/video.mp4 --output_dir outputs --outputs alpha fg checker cutout
-```
 
 ---
 
