@@ -2,7 +2,7 @@
 """CorridorKey 2.0 Nuke Bridge & Gizmo Controller.
 
 Provides native integration between The Foundry Nuke and VFXEdu CorridorKey 2.0.
-Works seamlessly with Nuke 12, 13, 14, 15, and 16.
+Works seamlessly with Nuke 12, 13, 14, 15, 16, and 17.
 """
 
 from __future__ import annotations
@@ -23,6 +23,18 @@ except ImportError:
     nuke = None
 
 
+def _has_torch(py_path: Path | None) -> bool:
+    """Verify if a python executable has PyTorch installed in site-packages."""
+    if not py_path or not py_path.is_file():
+        return False
+    parent = py_path.parent
+    site_dirs = [
+        parent / "Lib" / "site-packages" / "torch",
+        parent.parent / "Lib" / "site-packages" / "torch",
+    ]
+    return any(d.is_dir() for d in site_dirs)
+
+
 def find_corridorkey_root() -> Path | None:
     """Auto-detect the CorridorKey root repository or portable installation."""
     candidates = []
@@ -32,40 +44,68 @@ def find_corridorkey_root() -> Path | None:
     if env_root:
         candidates.append(Path(env_root))
 
-    # 2. Relative to this script (e.g. repo_root/nuke/corridorkey_nuke.py -> repo_root)
+    # 2. Known portable installations with weights
+    candidates.append(Path(r"K:\CorridorKey2.0\CorridorKeyer2.0_Portable_v0.1.1"))
+    candidates.append(Path(r"K:\CorridorKey2.0\CorridorKeyer2.0_Portable_v1.1.1"))
+
+    # 3. Main Development Repository
+    candidates.append(Path(r"K:\________________VFXEdu_Script\CorridorKeyer2.0"))
+
+    # 4. Relative to this script (e.g. repo_root/nuke/corridorkey_nuke.py -> repo_root)
     this_dir = Path(__file__).resolve().parent
     candidates.append(this_dir.parent)
     candidates.append(this_dir)
 
-    # 3. Known standard directories
-    candidates.append(Path(r"K:\________________VFXEdu_Script\CorridorKeyer2.0"))
-    candidates.append(Path(r"K:\CorridorKey2.0\CorridorKeyer2.0_Portable_v1.1.1"))
+    for p in candidates:
+        if p and p.is_dir() and (p / "infer.py").is_file():
+            # Check if this candidate actually has a working python with torch
+            py = find_python_executable(p)
+            if py and _has_torch(py):
+                return p.resolve()
 
+    # Fallback to any directory having infer.py
     for p in candidates:
         if p and p.is_dir() and (p / "infer.py").is_file():
             return p.resolve()
+
     return None
 
 
 def find_python_executable(ck_root: Path | None) -> Path | None:
-    """Find portable embedded Python or virtualenv Python."""
-    if not ck_root or not ck_root.is_dir():
-        return None
+    """Find a Python executable with PyTorch installed."""
+    if ck_root and ck_root.is_dir():
+        # Check venv first if on Windows
+        venv_py_win = ck_root / "venv" / "Scripts" / "python.exe"
+        if _has_torch(venv_py_win):
+            return venv_py_win.resolve()
 
-    # Check embedded python first (portable zero-install)
-    embed_py = ck_root / "python_embed" / "python.exe"
-    if embed_py.is_file():
-        return embed_py.resolve()
+        # Check embedded python (portable release)
+        embed_py = ck_root / "python_embed" / "python.exe"
+        if _has_torch(embed_py):
+            return embed_py.resolve()
 
-    # Check venv python (Windows)
-    venv_py_win = ck_root / "venv" / "Scripts" / "python.exe"
-    if venv_py_win.is_file():
-        return venv_py_win.resolve()
+        # Check POSIX venv
+        venv_py_posix = ck_root / "venv" / "bin" / "python"
+        if _has_torch(venv_py_posix):
+            return venv_py_posix.resolve()
 
-    # Check venv python (Linux/macOS)
-    venv_py_posix = ck_root / "venv" / "bin" / "python"
-    if venv_py_posix.is_file():
-        return venv_py_posix.resolve()
+    # Cross-search known working environments if ck_root's Python is not setup
+    fallback_pythons = [
+        Path(r"K:\CorridorKey2.0\CorridorKeyer2.0_Portable_v0.1.1\python_embed\python.exe"),
+        Path(r"K:\________________VFXEdu_Script\CorridorKeyer2.0\venv\Scripts\python.exe"),
+    ]
+    for fpy in fallback_pythons:
+        if _has_torch(fpy):
+            return fpy.resolve()
+
+    # Last resort fallback
+    if ck_root:
+        p1 = ck_root / "venv" / "Scripts" / "python.exe"
+        if p1.is_file():
+            return p1.resolve()
+        p2 = ck_root / "python_embed" / "python.exe"
+        if p2.is_file():
+            return p2.resolve()
 
     return None
 
@@ -125,7 +165,10 @@ def build_command_args(
         cmd.append("--no_carry_hint")
 
     if linear_workflow:
-        cmd.append("--frame_dir_linear")
+        # Pass --frame_dir_linear for frame directories (not video containers)
+        is_video = str(input_path).lower().endswith((".mp4", ".mov", ".mkv", ".avi", ".m4v"))
+        if not is_video:
+            cmd.append("--frame_dir_linear")
         cmd.append("--cutout_linear")
 
     return cmd
@@ -139,7 +182,7 @@ def execute_keyer(node) -> bool:
 
     # 1. Resolve CorridorKey root & Python executable
     ck_root_val = node.knob("ck_root").value().strip() if node.knob("ck_root") else ""
-    ck_root = Path(ck_root_val) if ck_root_val else find_corridorkey_root()
+    ck_root = Path(ck_root_val) if ck_root_val and os.path.isdir(ck_root_val) else find_corridorkey_root()
     if not ck_root or not ck_root.is_dir():
         nuke.message(
             "CorridorKey 2.0 root directory not found!\n\n"
@@ -148,11 +191,12 @@ def execute_keyer(node) -> bool:
         return False
 
     py_exe_val = node.knob("python_path").value().strip() if node.knob("python_path") else ""
-    python_exe = Path(py_exe_val) if py_exe_val else find_python_executable(ck_root)
-    if not python_exe or not python_exe.is_file():
+    python_exe = Path(py_exe_val) if py_exe_val and os.path.isfile(py_exe_val) else find_python_executable(ck_root)
+    if not python_exe or not python_exe.is_file() or not _has_torch(python_exe):
         nuke.message(
-            f"Python executable with PyTorch not found in {ck_root}!\n\n"
-            "Please ensure python_embed/python.exe or venv exists."
+            f"PyTorch-enabled Python executable not found for CorridorKey!\n\n"
+            f"Checked Root: {ck_root}\n"
+            f"Please ensure PyTorch is installed in venv or python_embed."
         )
         return False
 
@@ -174,24 +218,37 @@ def execute_keyer(node) -> bool:
         first_frame = int(source_node.firstFrame())
         last_frame = int(source_node.lastFrame())
 
-    # 3. Setup output directory
-    out_dir_val = node.knob("output_dir").value().strip() if node.knob("output_dir") else ""
-    if not out_dir_val:
-        script_dir = os.path.dirname(nuke.root().name())
-        if not script_dir:
-            script_dir = tempfile.gettempdir()
-        out_dir_val = os.path.join(script_dir, "corridorkey_output")
+    # 3. Setup output directory safely
+    out_dir_val = ""
+    if node.knob("output_dir"):
+        try:
+            out_dir_val = node.knob("output_dir").evaluate().strip()
+        except Exception:
+            out_dir_val = node.knob("output_dir").value().strip()
+
+    # If empty, invalid, or unsaved Nuke script
+    if (
+        not out_dir_val
+        or out_dir_val.startswith("[file")
+        or out_dir_val.startswith("./")
+        or out_dir_val == "corridorkey_output"
+    ):
+        script_path = nuke.root().name()
+        if script_path and script_path != "Root" and os.path.isabs(script_path):
+            base_dir = os.path.dirname(script_path)
+        else:
+            base_dir = str(Path(tempfile.gettempdir()) / "corridorkey_output")
+        out_dir_val = os.path.join(base_dir, "corridorkey_output")
+
     out_dir = Path(out_dir_val).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # 4. Resolve input path
-    # If source is a Read node pointing to a video file or frame directory without upstream comp, use directly!
     input_path = ""
     is_direct_disk = False
 
     if source_node.Class() == "Read":
         file_path = source_node.knob("file").value()
-        # Evaluate TCL expressions if any
         try:
             file_path = nuke.filename(source_node)
         except Exception:
@@ -204,7 +261,6 @@ def execute_keyer(node) -> bool:
                     input_path = file_path
                     is_direct_disk = True
             else:
-                # Image sequence directory
                 seq_dir = os.path.dirname(file_path)
                 if os.path.isdir(seq_dir):
                     input_path = seq_dir
@@ -218,13 +274,11 @@ def execute_keyer(node) -> bool:
         plate_pattern = str(temp_plate_dir / "plate_%06d.exr").replace("\\", "/")
 
         print(f"[CorridorKey] Baking source comp to temporary EXR sequence: {plate_pattern}")
-        # Create temporary Write node
         write_tmp = nuke.nodes.Write(inputs=[source_node])
         write_tmp.knob("file").setValue(plate_pattern)
         write_tmp.knob("file_type").setValue("exr")
         write_tmp.knob("datatype").setValue("16 bit half")
         write_tmp.knob("compression").setValue("Zip (1 scanline)")
-        write_tmp.knob("colorspace").setValue("linear")
 
         try:
             nuke.execute(write_tmp, first_frame, last_frame, 1)
@@ -302,8 +356,14 @@ def execute_keyer(node) -> bool:
         )
 
         prog_regex = re.compile(r"(\d+)/(\d+)")
+        output_logs = []
 
         for line in proc.stdout:
+            output_logs.append(line)
+            try:
+                nuke.tprint(line.rstrip())
+            except Exception:
+                pass
             sys.stdout.write(line)
             sys.stdout.flush()
 
@@ -336,9 +396,13 @@ def execute_keyer(node) -> bool:
                 lambda: _on_success(node, input_path, out_dir, output_format, first_frame, last_frame)
             )
         else:
-            print(f"\n[CorridorKey] ERROR: Inference failed with exit code {ret_code}.")
+            tail_error = "".join(output_logs[-25:]) if output_logs else "No process output."
+            print(f"\n[CorridorKey] ERROR: Inference failed with exit code {ret_code}.\n{tail_error}")
             nuke.executeInMainThread(
-                lambda: nuke.message(f"CorridorKey inference failed (Exit code: {ret_code})!\nCheck Script Editor for log.")
+                lambda: nuke.message(
+                    f"CorridorKey Inference Failed (Exit code: {ret_code})!\n\n"
+                    f"--- Error Details ---\n{tail_error}"
+                )
             )
 
     t = threading.Thread(target=_run_worker, daemon=True)
@@ -348,11 +412,6 @@ def execute_keyer(node) -> bool:
 
 def _on_success(node, input_path: str, out_dir: Path, output_format: str, first_frame: int, last_frame: int):
     """Callback when keying finishes: updates Gizmo internals and builds DAG nodes."""
-    # Find base clip name
-    clip_name = Path(input_path).name
-    if clip_name.endswith((".mp4", ".mov", ".mkv", ".avi")):
-        clip_name = Path(clip_name).stem
-
     import_mode = node.knob("import_to_dag").value() if node.knob("import_to_dag") else "Both"
 
     alpha_path = ""
@@ -360,7 +419,6 @@ def _on_success(node, input_path: str, out_dir: Path, output_format: str, first_
     cutout_path = ""
 
     if output_format == "exr":
-        # Search for generated EXR sequence directories
         for sub in out_dir.iterdir():
             if sub.is_dir():
                 sname = sub.name
@@ -371,7 +429,6 @@ def _on_success(node, input_path: str, out_dir: Path, output_format: str, first_
                 elif "cutout_exr" in sname:
                     cutout_path = str(sub / "cutout_%06d.exr").replace("\\", "/")
     else:
-        # Video files
         for f in out_dir.iterdir():
             if f.is_file():
                 fname = f.name
@@ -407,7 +464,7 @@ def _on_success(node, input_path: str, out_dir: Path, output_format: str, first_
 
             sw = nuke.toNode("Switch_Output")
             if sw:
-                sw.knob("which").setValue(1)  # Switch to rendered output
+                sw.knob("which").setValue(1)
     except Exception as e:
         print(f"[CorridorKey] Note: Internal Gizmo wiring update: {e}")
 
@@ -438,7 +495,6 @@ def _build_dag_node_tree(gizmo_node, alpha_path: str, fg_path: str, cutout_path:
     gy = gizmo_node.ypos()
 
     if cutout_path:
-        # Direct RGBA Cutout Read node
         r_cut = nuke.nodes.Read(xpos=gx + 150, ypos=gy)
         r_cut.knob("file").setValue(cutout_path)
         r_cut.knob("first").setValue(first)
@@ -448,7 +504,6 @@ def _build_dag_node_tree(gizmo_node, alpha_path: str, fg_path: str, cutout_path:
         r_cut.knob("label").setValue("CorridorKey Cutout (RGBA)")
 
     if fg_path and alpha_path:
-        # FG Read Node
         r_fg = nuke.nodes.Read(xpos=gx, ypos=gy + 100)
         r_fg.knob("file").setValue(fg_path)
         r_fg.knob("first").setValue(first)
@@ -457,7 +512,6 @@ def _build_dag_node_tree(gizmo_node, alpha_path: str, fg_path: str, cutout_path:
         r_fg.knob("origlast").setValue(last)
         r_fg.knob("label").setValue("CorridorKey Clean FG")
 
-        # Alpha Read Node
         r_alpha = nuke.nodes.Read(xpos=gx + 120, ypos=gy + 100)
         r_alpha.knob("file").setValue(alpha_path)
         r_alpha.knob("first").setValue(first)
@@ -466,12 +520,10 @@ def _build_dag_node_tree(gizmo_node, alpha_path: str, fg_path: str, cutout_path:
         r_alpha.knob("origlast").setValue(last)
         r_alpha.knob("label").setValue("CorridorKey Alpha Matte")
 
-        # Copy Alpha into FG
         cpy = nuke.nodes.Copy(xpos=gx, ypos=gy + 180, inputs=[r_fg, r_alpha])
         cpy.knob("from0").setValue("rgba.alpha")
         cpy.knob("to0").setValue("rgba.alpha")
 
-        # Premult
         pm = nuke.nodes.Premult(xpos=gx, ypos=gy + 240, inputs=[cpy])
         pm.knob("label").setValue("Keyed & Despilled")
 
@@ -486,7 +538,6 @@ def create_corridorkeyer_node():
     group.knob("tile_color").setValue(0x1a4a6eff)
     group.knob("note_font").setValue("Verdana Bold")
 
-    # Add Knobs
     tab = nuke.Tab_Knob("CorridorKeyer", "CorridorKeyer 2.0")
     group.addKnob(tab)
 
@@ -508,7 +559,6 @@ def create_corridorkeyer_node():
     div1 = nuke.Text_Knob("div1", "", "")
     group.addKnob(div1)
 
-    # Output Settings
     grp_out = nuke.Tab_Knob("grp_out", "Output Settings", nuke.TABBEGANGROUP)
     group.addKnob(grp_out)
 
@@ -538,7 +588,6 @@ def create_corridorkeyer_node():
     grp_out_end = nuke.Tab_Knob("grp_out_end", "", nuke.TABENDGROUP)
     group.addKnob(grp_out_end)
 
-    # Keying Parameters
     grp_param = nuke.Tab_Knob("grp_param", "AI Keying Parameters", nuke.TABBEGANGROUP)
     group.addKnob(grp_param)
 
@@ -574,7 +623,6 @@ def create_corridorkeyer_node():
     grp_param_end = nuke.Tab_Knob("grp_param_end", "", nuke.TABENDGROUP)
     group.addKnob(grp_param_end)
 
-    # DAG Import options
     import_dag = nuke.Enumeration_Knob("import_to_dag", "DAG Integration", ["Both", "Update Gizmo Output", "Create Read Nodes in DAG"])
     group.addKnob(import_dag)
 
@@ -582,7 +630,6 @@ def create_corridorkeyer_node():
     open_f.setValue(False)
     group.addKnob(open_f)
 
-    # System tab
     tab_sys = nuke.Tab_Knob("tab_sys", "System / Paths")
     group.addKnob(tab_sys)
 
@@ -598,12 +645,10 @@ def create_corridorkeyer_node():
         py_k.setValue(str(detected_py))
     group.addKnob(py_k)
 
-    # Setup internal node structure
     with group:
         in_source = nuke.nodes.Input(name="Source", xpos=0, ypos=0)
         in_hint = nuke.nodes.Input(name="FrameHint", xpos=200, ypos=0)
 
-        # Internal Read nodes (will be populated on render)
         read_cutout = nuke.nodes.Read(name="Read_Cutout", xpos=100, ypos=100)
         read_cutout.knob("file").setValue("")
 
