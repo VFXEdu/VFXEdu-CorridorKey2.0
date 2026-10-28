@@ -6,6 +6,7 @@ import os
 import queue
 import shutil
 import subprocess
+import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,11 +31,44 @@ class WriterConfig:
     threads: int = 2
 
 
+def find_ffmpeg() -> str | None:
+    """Find system ffmpeg or local bundled ffmpeg binary."""
+    which_ffmpeg = shutil.which("ffmpeg")
+    if which_ffmpeg:
+        return which_ffmpeg
+    root = Path(__file__).resolve().parent.parent
+    candidates = [
+        root / "bin" / "ffmpeg.exe",
+        root / "ffmpeg.exe",
+        Path(sys.executable).parent / "bin" / "ffmpeg.exe",
+        Path(sys.executable).parent / "ffmpeg.exe",
+        root / "bin" / "ffmpeg",
+        root / "ffmpeg",
+    ]
+    for cand in candidates:
+        if cand.is_file():
+            bin_dir = str(cand.parent)
+            if bin_dir not in os.environ.get("PATH", ""):
+                os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
+            return str(cand)
+    return None
+
+
+# Auto-detect local bundled ffmpeg at import time
+_BUNDLED_FFMPEG = find_ffmpeg()
+
+
 def require_ffmpeg(ffmpeg_bin: str) -> None:
-    if shutil.which(ffmpeg_bin) is None:
-        raise FileNotFoundError(
-            f"ffmpeg binary not found: {ffmpeg_bin}. "
-            "Install ffmpeg or pass --ffmpeg_bin.")
+    if shutil.which(ffmpeg_bin) is not None:
+        return
+    if Path(ffmpeg_bin).is_file():
+        return
+    local = find_ffmpeg()
+    if local is not None and (shutil.which(ffmpeg_bin) is not None or ffmpeg_bin == "ffmpeg"):
+        return
+    raise FileNotFoundError(
+        f"ffmpeg binary not found: {ffmpeg_bin}. "
+        "Install ffmpeg, place ffmpeg.exe in the bin/ directory, or pass --ffmpeg_bin.")
 
 
 def safe_remove(path: str | os.PathLike | None) -> None:

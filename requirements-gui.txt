@@ -1,0 +1,4 @@
+-r requirements.txt
+PySide6>=6.8,<7
+diffusers>=0.31.0
+accelerate>=0.26.0

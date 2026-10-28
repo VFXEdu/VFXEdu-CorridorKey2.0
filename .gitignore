@@ -37,3 +37,10 @@ tmp/
 # Local / studio-specific files
 path_mappings.json
 .claude/
+
+# Distribution and Portable Runtimes
+bin/ffmpeg.exe
+bin/ffmpeg
+python_embed/
+dist/
+gui_config.json

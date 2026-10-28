@@ -1,0 +1,70 @@
+name: Build & Publish Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release Tag (e.g. v0.1.1)'
+        required: true
+        default: 'v0.1.1'
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prepare Embedded Python & FFmpeg
+        run: |
+          python scripts/prepare_embedded_python.py
+
+      - name: Build Portable Release Package
+        run: |
+          python scripts/create_distribution_zip.py
+
+      - name: Determine Release Tag
+        id: vars
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.tag_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create GitHub Release and Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.vars.outputs.tag }}
+          name: VFXEdu CorridorKey 2.0 ${{ steps.vars.outputs.tag }}
+          draft: false
+          prerelease: false
+          body: |
+            ## ⚡ VFXEdu CorridorKey 2.0 (${{ steps.vars.outputs.tag }}) Portable Release
+            
+            ### 📦 특징 (Features)
+            - **완전 무설치 (Zero Prerequisites)**: Python 및 FFmpeg를 시스템에 설치할 필요 없이 즉시 사용 가능.
+            - **하이브리드 포터블 배포본 (~95 MB)**: 가벼운 배포 압축 파일로 다운로드가 빠르고 간편.
+            - **원클릭 자동 설정**: 압축 해제 후 `Setup_GUI.bat` 1회 실행으로 PyTorch(CUDA 12.8) 자동 구성.
+            - **VFX Workbench UI**: 실시간 GPU 점유율 모니터링, 와이프(Wipe) 비교, 브러시 마스크 편집기, RGVI 배경 복원 탑재.
+
+            ### 🚀 설치 및 실행 방법
+            1. 아래 Assets에서 `CorridorKeyer2.0_Portable_Setup.zip`을 다운로드합니다.
+            2. 원하는 폴더에 압축을 풉니다.
+            3. `Setup_GUI.bat`를 더블 클릭하여 초기 설치를 진행합니다.
+            4. `Launch_GUI.bat`를 더블 클릭하여 실행합니다.
+          files: |
+            dist/CorridorKeyer2.0_Portable_Setup.zip
+            dist/CorridorKeyer2.0_Portable_Setup.zip.sha256
