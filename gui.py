@@ -132,12 +132,12 @@ def find_alpha_hint_video(input_path: Path) -> Path | None:
 def make_arguments(source: Path, destination: Path, options: dict) -> list[str]:
     """Construct complete CLI argument list for infer.py covering all CorridorKey 2.0 features."""
     if not source.exists():
-        raise ValueError(f'입력 경로가 없습니다: {source}')
+        raise ValueError(f'Input path does not exist: {source}')
     if source.is_dir() and not any(p.suffix.lower() in IMAGE_EXTS for p in source.iterdir() if p.is_file()):
-        raise ValueError(f'이미지 프레임이 없는 폴더입니다: {source}')
+        raise ValueError(f'Folder contains no image frames: {source}')
     outputs = list(options.get('outputs') or [])
     if not outputs:
-        raise ValueError('출력을 하나 이상 선택하세요.')
+        raise ValueError('Select at least one output.')
 
     args = [
         '-u', str(ROOT / 'infer.py'),
@@ -411,7 +411,7 @@ class Preview(QGroupBox):
                     frame = None
 
             if frame is None:
-                raise ValueError('프레임을 읽을 수 없습니다.')
+                raise ValueError('Failed to read frame.')
 
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             self.current_rgb_frame = rgb
@@ -424,7 +424,7 @@ class Preview(QGroupBox):
             self.pixmap = None
             self.current_rgb_frame = None
             self.image.clear()
-            self.image.setText('미리보기 불가 — 결과 폴더에서 확인하세요')
+            self.image.setText(tr('preview_unavailable'))
             self.caption.setText('')
 
     def render(self):
@@ -817,9 +817,9 @@ class Window(QMainWindow):
         v_queue_layout.setContentsMargins(4, 4, 4, 4)
         v_queue_layout.setSpacing(4)
 
-        lbl_queue_title = QLabel(tr("wb_queue"))
-        lbl_queue_title.setStyleSheet("font-size:11px; font-weight:bold; color:#7e8b9d; letter-spacing:1px;")
-        v_queue_layout.addWidget(lbl_queue_title)
+        self.lbl_queue_title = QLabel(tr("wb_queue"))
+        self.lbl_queue_title.setStyleSheet("font-size:11px; font-weight:bold; color:#7e8b9d; letter-spacing:1px;")
+        v_queue_layout.addWidget(self.lbl_queue_title)
 
         self.queue_info = QLabel(tr("wb_queue_empty"))
         self.queue_info.setStyleSheet("color:#5c6878; font-size:10px; padding:6px; background:#0d0f13; border:1px dashed #1e222c; border-radius:4px;")
@@ -1200,9 +1200,9 @@ class Window(QMainWindow):
         v_deliv.setContentsMargins(8, 8, 8, 8)
         v_deliv.setSpacing(6)
 
-        lbl_deliv_title = QLabel(tr("wb_deliver"))
-        lbl_deliv_title.setStyleSheet("font-size:11px; font-weight:800; color:#e5a93c; letter-spacing:1px;")
-        v_deliv.addWidget(lbl_deliv_title)
+        self.lbl_deliv_title = QLabel(tr("wb_deliver"))
+        self.lbl_deliv_title.setStyleSheet("font-size:11px; font-weight:800; color:#e5a93c; letter-spacing:1px;")
+        v_deliv.addWidget(self.lbl_deliv_title)
 
         # Output folder
         self.output = QLineEdit(str(ROOT / 'outputs'))
@@ -1720,6 +1720,19 @@ class Window(QMainWindow):
     # =========================================================================
     # Retranslate UI
     # =========================================================================
+    def _refresh_combo(self, combo: QComboBox, items: list[tuple[str, any]]):
+        if not hasattr(combo, 'count'):
+            return
+        curr = combo.currentData()
+        combo.blockSignals(True)
+        combo.clear()
+        for t, d in items:
+            combo.addItem(t, d)
+        idx = combo.findData(curr)
+        if idx >= 0:
+            combo.setCurrentIndex(idx)
+        combo.blockSignals(False)
+
     def retranslate_ui(self):
         """Update all UI widget texts dynamically to match current language."""
         self.setWindowTitle(f"{APP_NAME} {APP_VERSION} · {tr('window_title')}")
@@ -1733,16 +1746,41 @@ class Window(QMainWindow):
         self.btn_models.setText(tr('btn_models'))
         self.btn_models.setToolTip(tr('btn_models_tip'))
 
+        # Tool Rail
+        if hasattr(self, 'tool_rail'):
+            self.tool_rail.retranslate()
+
+        # Viewport Modes & Channel
         self.btn_view_single.setText(tr('wb_mode_single'))
         self.btn_view_wipe.setText(tr('wb_mode_wipe'))
         self.btn_view_side.setText(tr('wb_mode_side'))
+        if hasattr(self, 'combo_channel'):
+            self._refresh_combo(self.combo_channel, [
+                (tr("wb_chan_composite"), "comp"),
+                (tr("wb_chan_alpha"), "alpha"),
+                (tr("wb_chan_orig"), "orig"),
+            ])
+        if hasattr(self, 'combo_zoom'):
+            self._refresh_combo(self.combo_zoom, [
+                (tr("wb_fit"), "fit"),
+                (tr("wb_fit_100"), "100"),
+                (tr("wb_fit_50"), "50"),
+            ])
 
+        # Media Bin & Queue
         self.grp_queue.setTitle(tr('grp_input'))
         self.lbl_media_bin.setText(tr('wb_media_bin'))
         self.btn_add_vid.setText(tr('wb_import'))
         self.btn_add_seq.setText(tr('btn_add_folder'))
         self.btn_remove_item.setText(tr('btn_remove'))
+        if hasattr(self, 'btn_clear_q'):
+            self.btn_clear_q.setToolTip(tr('btn_clear_queue'))
+        if hasattr(self, 'lbl_queue_title'):
+            self.lbl_queue_title.setText(tr('wb_queue'))
+        if hasattr(self, 'queue_info') and (not self.current_source or self.proc.state() == QProcess.NotRunning):
+            self.queue_info.setText(tr('wb_queue_empty'))
 
+        # Telemetry Status Sections
         if hasattr(self, 'sec_left_status'):
             self.sec_left_status.setTitle(tr('wb_sec_status'))
         if hasattr(self, 'lbl_left_gpu_title'):
@@ -1754,29 +1792,151 @@ class Window(QMainWindow):
         if hasattr(self, 'lbl_insp'):
             self.lbl_insp.setText(tr('wb_inspector'))
 
+        # Section 1: Core & Memory
         self.sec_memory.setTitle(tr('wb_sec_memory'))
         self.chk_awareness.setText(tr('wb_awareness'))
         self.lbl_row_time_awareness.setText(tr('wb_time_awareness'))
         self.lbl_row_gpu_limit.setText(tr('wb_gpu_mem_limit'))
         self.low_vram.setText(tr('chk_low_vram'))
         self.low_vram.setToolTip(tr('chk_low_vram_tip'))
+        if hasattr(self, 'lbl_row_hann'):
+            self.lbl_row_hann.setText(tr('lbl_hann'))
+        if hasattr(self, 'hann_mode'):
+            self._refresh_combo(self.hann_mode, [
+                (tr('hann_auto'), 'auto'),
+                (tr('hann_80_40'), '80_40'),
+                (tr('hann_48_24'), '48_24'),
+                (tr('hann_24_12'), '24_12'),
+                (tr('hann_8_4'), '8_4'),
+                (tr('hann_1_1'), '1_1'),
+                (tr('hann_custom'), 'custom'),
+            ])
+        if hasattr(self, 'lbl_row_custom_hann'):
+            self.lbl_row_custom_hann.setText(tr('lbl_custom_hann'))
+        if hasattr(self, 'lbl_row_model_scale'):
+            self.lbl_row_model_scale.setText(tr('lbl_model_scale'))
+        if hasattr(self, 'model_scale'):
+            self.model_scale.setToolTip(tr('lbl_model_scale_tip'))
+        if hasattr(self, 'lbl_row_stage2_batch'):
+            self.lbl_row_stage2_batch.setText(tr('lbl_stage2_batch'))
+        if hasattr(self, 'lbl_row_weights'):
+            self.lbl_row_weights.setText(tr('lbl_weights'))
+        if hasattr(self, 'weights_path'):
+            self.weights_path.setPlaceholderText(tr('weights_placeholder'))
 
+        # Section 2: Alpha Hint
         self.sec_hint.setTitle(tr('wb_sec_hint'))
         self.lbl_row_hint_file.setText(tr('lbl_hint_file'))
         self.hint.setPlaceholderText(tr('hint_placeholder'))
         self.btn_brush_main.setText(tr('btn_brush_editor'))
         self.btn_brush_main.setToolTip(tr('btn_brush_editor_tip'))
+        if hasattr(self, 'lbl_row_hint_mode'):
+            self.lbl_row_hint_mode.setText(tr('lbl_keying_mode'))
+        if hasattr(self, 'hint_mode'):
+            self._refresh_combo(self.hint_mode, [
+                (tr('mode_no_hint'), ''),
+                (tr('mode_first_frame'), '--hint_first_frame'),
+                (tr('mode_video_hint'), '--hint_video'),
+            ])
+        if hasattr(self, 'lbl_exp_quality'):
+            self.lbl_exp_quality.setText(tr('lbl_explicit_quality'))
+        if hasattr(self, 'lbl_cry_quality'):
+            self.lbl_cry_quality.setText(tr('lbl_carry_quality'))
+        if hasattr(self, 'lbl_row_hint_quality'):
+            self.lbl_row_hint_quality.setText(tr('lbl_hint_quality'))
+        if hasattr(self, 'no_carry_hint'):
+            self.no_carry_hint.setText(tr('chk_no_carry'))
+            self.no_carry_hint.setToolTip(tr('chk_no_carry_tip'))
 
+        # Section 3: Despill
         self.sec_despill.setTitle(tr('wb_sec_despill'))
         self.lbl_row_despill.setText(tr('lbl_despill'))
 
+        # Section 4: Output & Deliver
         self.sec_out.setTitle(tr('wb_sec_output'))
+        if hasattr(self, 'outputs'):
+            for k, tr_k in [('alpha', 'out_alpha'), ('fg', 'out_fg'), ('checker', 'out_checker'), ('cutout', 'out_cutout')]:
+                if k in self.outputs:
+                    self.outputs[k].setText(tr(tr_k))
+        if hasattr(self, 'cutout_linear'):
+            self.cutout_linear.setText(tr('chk_cutout_linear'))
+            self.cutout_linear.setToolTip(tr('chk_cutout_linear_tip'))
+        if hasattr(self, 'lbl_row_num_frames'):
+            self.lbl_row_num_frames.setText(tr('lbl_num_frames'))
+        if hasattr(self, 'frames'):
+            self.frames.setSpecialValueText(tr('special_all_frames'))
+        if hasattr(self, 'lbl_row_start_mode'):
+            self.lbl_row_start_mode.setText(tr('lbl_start_mode'))
+        if hasattr(self, 'start'):
+            self._refresh_combo(self.start, [
+                (tr('start_begin'), 'begin'),
+                (tr('start_middle'), 'middle'),
+                (tr('start_random_middle'), 'random_middle'),
+            ])
+        if hasattr(self, 'lbl_row_seed'):
+            self.lbl_row_seed.setText(tr('lbl_seed'))
+        if hasattr(self, 'lbl_row_fps'):
+            self.lbl_row_fps.setText(tr('lbl_fps'))
+        if hasattr(self, 'linear'):
+            self.linear.setText(tr('chk_linear'))
+        if hasattr(self, 'lbl_row_codec'):
+            self.lbl_row_codec.setText(tr('lbl_codec'))
+        if hasattr(self, 'codec'):
+            self._refresh_combo(self.codec, [
+                (tr('codec_x264'), 'libx264'),
+                (tr('codec_h264_nvenc'), 'h264_nvenc'),
+                (tr('codec_hevc_nvenc'), 'hevc_nvenc'),
+                (tr('codec_prores'), 'prores_ks'),
+            ])
+        if hasattr(self, 'lbl_crf_text'):
+            self.lbl_crf_text.setText(tr('lbl_crf'))
+        if hasattr(self, 'lbl_row_crf'):
+            self.lbl_row_crf.setText(tr('lbl_crf_row'))
+        if hasattr(self, 'lbl_row_pix_fmt'):
+            self.lbl_row_pix_fmt.setText(tr('lbl_pix_fmt'))
+        if hasattr(self, 'pix_fmt'):
+            self._refresh_combo(self.pix_fmt, [
+                (tr('pix_yuv444p10le'), 'yuv444p10le'),
+                (tr('pix_yuv444p'), 'yuv444p'),
+                (tr('pix_yuv420p'), 'yuv420p'),
+            ])
+        if hasattr(self, 'lbl_row_preset'):
+            self.lbl_row_preset.setText(tr('lbl_preset'))
+        if hasattr(self, 'lbl_row_bright'):
+            self.lbl_row_bright.setText(tr('lbl_bright'))
+        if hasattr(self, 'lbl_row_contrast'):
+            self.lbl_row_contrast.setText(tr('lbl_contrast'))
+        if hasattr(self, 'lbl_row_pivot'):
+            self.lbl_row_pivot.setText(tr('lbl_pivot'))
+
+        # Deliver Panel
+        if hasattr(self, 'lbl_deliv_title'):
+            self.lbl_deliv_title.setText(tr('wb_deliver'))
         self.lbl_row_output_dir.setText(tr('lbl_output_dir'))
         self.lbl_row_format.setText(tr('lbl_format'))
+        if hasattr(self, 'format'):
+            self._refresh_combo(self.format, [
+                (tr('format_video'), 'video'),
+                (tr('format_exr'), 'exr'),
+            ])
+        if hasattr(self, 'lbl_row_exr_dtype'):
+            self.lbl_row_exr_dtype.setText(tr('lbl_exr_dtype'))
+        if hasattr(self, 'exr_dtype'):
+            self._refresh_combo(self.exr_dtype, [
+                (tr('exr_half'), 'half'),
+                (tr('exr_float'), 'float'),
+            ])
         self.lbl_format_note.setText(tr('wb_format_note'))
+        if hasattr(self, 'folder_btn'):
+            self.folder_btn.setToolTip(tr('btn_open_folder'))
+
+        # Browse buttons
+        for btn in self.browse_buttons:
+            btn.setText(tr('btn_browse'))
 
         self.btn_add_to_queue.setText(tr('wb_btn_add_queue'))
         self.run_button.setText(tr('wb_btn_render'))
+        self.stop_button.setText(tr('wb_btn_cancel'))
 
         if self.proc.state() == QProcess.NotRunning:
             self.status.setText(tr('status_ready'))

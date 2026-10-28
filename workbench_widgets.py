@@ -106,6 +106,22 @@ class ToolRailWidget(QFrame):
 
         self.buttons["media"].setChecked(True)
         layout.addStretch()
+        self.retranslate()
+
+    def retranslate(self):
+        from i18n import tr
+        tips = {
+            "media": tr("rail_media_tip"),
+            "layers": tr("rail_layers_tip"),
+            "wipe": tr("rail_wipe_tip"),
+            "history": tr("rail_history_tip"),
+            "color": tr("rail_color_tip"),
+            "models": tr("rail_models_tip"),
+            "export": tr("rail_export_tip"),
+        }
+        for k, tip in tips.items():
+            if k in self.buttons:
+                self.buttons[k].setToolTip(tip)
 
     def _on_clicked(self, key: str):
         for k, b in self.buttons.items():

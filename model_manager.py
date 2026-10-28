@@ -244,7 +244,7 @@ class ModelCardWidget(QFrame):
             self.lbl_icon.setText("🟢")
             self.lbl_status.setText(f"<span style='color:#71e0be;font-weight:bold;'>✔ {tr('model_mgr_installed')}</span>")
             self.lbl_size.setText(info.get("size_formatted", info["size_str"]))
-            self.btn_download.setText(tr("model_mgr_refresh"))
+            self.btn_download.setText(tr("model_mgr_btn_refresh"))
             self.btn_download.setStyleSheet("""
                 QPushButton {
                     background: #1a2530;

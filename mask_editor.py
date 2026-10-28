@@ -536,7 +536,7 @@ class MaskCanvas(QWidget):
         if self.source_rgb is None or self.mask is None or self.width_img <= 0:
             painter.setPen(QColor(120, 130, 150))
             painter.setFont(QFont("Segoe UI", 11))
-            painter.drawText(self.rect(), Qt.AlignCenter, "표시할 프레임 이미지가 없습니다")
+            painter.drawText(self.rect(), Qt.AlignCenter, tr("be_no_frame"))
             return
 
         # Target display rect
@@ -968,7 +968,7 @@ class BrushMaskEditorDialog(QDialog):
     def apply_as_first_frame_hint(self):
         """Save mask to companion FrameHint.png and emit signal to main GUI."""
         if self.canvas.mask is None:
-            QMessageBox.warning(self, "오류", "마스크 데이터가 없습니다.")
+            QMessageBox.warning(self, tr("msg_error"), tr("be_msg_no_mask"))
             return
 
         # Convention: <clip_name>FrameHint.png
@@ -987,9 +987,9 @@ class BrushMaskEditorDialog(QDialog):
                     pass
                 self.accept()
             else:
-                raise RuntimeError("PNG 인코딩 실패")
+                raise RuntimeError("PNG encoding failed")
         except Exception as exc:
-            QMessageBox.critical(self, "저장 실패", f"마스크 파일 저장 중 오류:\n{exc}")
+            QMessageBox.critical(self, tr("msg_error"), tr("be_msg_save_fail", exc=str(exc)))
 
     def export_mask_file(self):
         """Export mask as standalone PNG image."""
@@ -997,7 +997,7 @@ class BrushMaskEditorDialog(QDialog):
             return
         default_name = f"{Path(self.clip_name).stem}_mask.png"
         path, _ = QFileDialog.getSaveFileName(
-            self, "마스크 파일 저장",
+            self, tr("be_dlg_save_mask"),
             str(self.output_hint_dir / default_name),
             "PNG Image (*.png);;TIFF Image (*.tif *.tiff)"
         )
@@ -1006,9 +1006,9 @@ class BrushMaskEditorDialog(QDialog):
                 ok, enc = cv2.imencode(".png", self.canvas.mask)
                 if ok:
                     Path(path).write_bytes(enc.tobytes())
-                    QMessageBox.information(self, "저장 완료", f"마스크가 저장되었습니다:\n{path}")
+                    QMessageBox.information(self, tr("msg_save_complete"), tr("be_msg_save_done", path=path))
             except Exception as exc:
-                QMessageBox.critical(self, "저장 오류", str(exc))
+                QMessageBox.critical(self, tr("msg_error"), tr("be_msg_save_err", exc=str(exc)))
 
     def export_cutout_file(self):
         """Export selected foreground as transparent RGBA PNG."""
@@ -1016,7 +1016,7 @@ class BrushMaskEditorDialog(QDialog):
             return
         default_name = f"{Path(self.clip_name).stem}_cutout.png"
         path, _ = QFileDialog.getSaveFileName(
-            self, "전경 컷아웃(RGBA) 저장",
+            self, tr("be_dlg_save_cutout"),
             str(self.output_hint_dir / default_name),
             "PNG Transparent Image (*.png)"
         )
@@ -1028,14 +1028,14 @@ class BrushMaskEditorDialog(QDialog):
                 ok, enc = cv2.imencode(".png", bgra)
                 if ok:
                     Path(path).write_bytes(enc.tobytes())
-                    QMessageBox.information(self, "추출 완료", f"전경 컷아웃이 저장되었습니다:\n{path}")
+                    QMessageBox.information(self, tr("msg_export_complete"), tr("be_msg_cutout_done", path=path))
             except Exception as exc:
-                QMessageBox.critical(self, "추출 오류", str(exc))
+                QMessageBox.critical(self, tr("msg_error"), tr("be_msg_cutout_err", exc=str(exc)))
 
     def import_mask_file(self):
         """Load external mask image."""
         path, _ = QFileDialog.getOpenFileName(
-            self, "기존 마스크 파일 선택",
+            self, tr("be_dlg_import_mask"),
             str(self.output_hint_dir),
             "Images (*.png *.jpg *.jpeg *.exr *.tif *.tiff)"
         )
@@ -1059,7 +1059,7 @@ class BrushMaskEditorDialog(QDialog):
                     self.canvas.update()
                     self._update_stats()
             except Exception as exc:
-                QMessageBox.warning(self, "불러오기 실패", f"마스크 파일을 읽을 수 없습니다:\n{exc}")
+                QMessageBox.warning(self, tr("msg_load_fail"), tr("be_msg_import_fail", exc=str(exc)))
 
     def _apply_theme(self):
         self.setStyleSheet("""
