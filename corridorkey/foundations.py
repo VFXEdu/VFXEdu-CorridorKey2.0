@@ -20,6 +20,50 @@ import types
 import torch
 import torch.nn as nn
 
+# ---------------------------------------------------------------------------
+# Python 3.12 compatibility shim (PEP 632 removed distutils)
+# C-RADIOv4-SO400M imports `from distutils.version import LooseVersion`.
+# ---------------------------------------------------------------------------
+def _ensure_distutils_shim():
+    try:
+        import setuptools  # Activates _distutils_hack if available
+    except ImportError:
+        pass
+
+    try:
+        import distutils.version
+    except ImportError:
+        import types
+        try:
+            from packaging.version import Version as _LooseVersion
+        except ImportError:
+            class _LooseVersion:
+                def __init__(self, vstring=None):
+                    self.vstring = str(vstring or "")
+                def __lt__(self, other):
+                    return str(self.vstring) < str(getattr(other, "vstring", other))
+                def __le__(self, other):
+                    return str(self.vstring) <= str(getattr(other, "vstring", other))
+                def __gt__(self, other):
+                    return str(self.vstring) > str(getattr(other, "vstring", other))
+                def __ge__(self, other):
+                    return str(self.vstring) >= str(getattr(other, "vstring", other))
+                def __eq__(self, other):
+                    return str(self.vstring) == str(getattr(other, "vstring", other))
+                def __repr__(self):
+                    return f"LooseVersion ('{self.vstring}')"
+
+        d_mod = sys.modules.get("distutils") or types.ModuleType("distutils")
+        dv_mod = types.ModuleType("distutils.version")
+        dv_mod.LooseVersion = _LooseVersion
+        d_mod.version = dv_mod
+        sys.modules.setdefault("distutils", d_mod)
+        sys.modules.setdefault("distutils.version", dv_mod)
+
+
+_ensure_distutils_shim()
+
+
 
 # ---------------------------------------------------------------------------
 # MoGe loader

@@ -96,7 +96,9 @@ def should_include(rel_path: Path) -> bool:
     # For python_embed: retain base embedded Python & pip, exclude bulky site-packages if present
     if len(parts) >= 3 and parts[0] == "python_embed" and parts[1] == "Lib" and parts[2] == "site-packages":
         pkg_name = parts[3] if len(parts) > 3 else ""
-        allowed_prefixes = ("pip", "setuptools", "wheel", "_distutils")
+        allowed_prefixes = ("pip", "setuptools", "wheel", "_distutils", "distutils")
+        if pkg_name.endswith(".pth"):
+            return True
         if pkg_name and not pkg_name.startswith(allowed_prefixes) and pkg_name != ".gitkeep":
             return False
 

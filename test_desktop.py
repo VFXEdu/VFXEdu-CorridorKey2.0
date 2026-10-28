@@ -459,6 +459,16 @@ class DesktopTests(unittest.TestCase):
         self.assertIn("import site", pth_text)
         self.assertIn("Lib/site-packages", pth_text)
 
+    def test_distutils_shim_python312_compatibility(self):
+        """Verify distutils.version.LooseVersion is available even on Python 3.12 without setuptools."""
+        from corridorkey.foundations import _ensure_distutils_shim
+        _ensure_distutils_shim()
+        from distutils.version import LooseVersion
+        v1 = LooseVersion("4.45.0")
+        v2 = LooseVersion("4.44.2")
+        self.assertTrue(v1 > v2)
+        self.assertEqual(str(v1), "4.45.0")
+
 
 if __name__ == '__main__':
     unittest.main()
