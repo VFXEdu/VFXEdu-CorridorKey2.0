@@ -486,7 +486,9 @@ class _FilmstripStrip(QWidget):
             return
         ratio = max(0.0, min(1.0, x / max(1, self.width())))
         frame = int(ratio * (self.total_frames - 1))
-        self.frame_picked.emit(frame)
+        if frame != self.current_frame:
+            self.set_current_frame(frame)
+            self.frame_picked.emit(frame)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:

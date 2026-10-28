@@ -43,6 +43,7 @@ class DesktopTests(unittest.TestCase):
         if self.w.proc.state() != QProcess.NotRunning:
             self.w.proc.kill()
             self.w.proc.waitForFinished(5000)
+        self.w._release_video_caps()
         self.w.close()
         self.temp.cleanup()
 
