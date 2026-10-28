@@ -1,0 +1,141 @@
+-- ===========================================================================
+--  VFXEdu CorridorKey 2.0 - Native Fusion Fuse Node
+--  Zero-Popup Native Node for DaVinci Resolve Fusion Page
+-- ===========================================================================
+
+FuRegisterClass("CorridorKeyer", CT_Tool, {
+    REGS_Name = "CorridorKeyer",
+    REGS_Category = "Keyer||VFXEdu",
+    REGS_OpIconString = "CK",
+    REGS_OpDescription = "VFXEdu CorridorKey 2.0 AI Video Keyer",
+    REGS_Company = "VFXEdu",
+    REG_NoMotionBlurCtrls = true,
+    REG_NoBlendCtrls = true,
+    REG_OpNoMask = true,
+    REG_Version = 100,
+})
+
+function Create()
+    -- Inputs (Flow Graph)
+    InImage = self:AddInput("Input", "Input", {
+        LINKID_DataType = "Image",
+        LINK_Main = 1,
+    })
+
+    InHint = self:AddInput("FrameHint", "FrameHint", {
+        LINKID_DataType = "Image",
+        LINK_Main = 2,
+    })
+
+    -- Output (Flow Graph)
+    OutImage = self:AddOutput("Output", "Output", {
+        LINKID_DataType = "Image",
+        LINK_Main = 1,
+    })
+
+    -- Inspector Controls
+    self:BeginControlNest("CorridorKeyer 2.0 Parameters", "CKParams", true, {})
+
+    InHeader = self:AddInput("⚡ VFXEdu CorridorKey 2.0", "HeaderLbl", {
+        LINKID_DataType = "Text",
+        INPID_InputControl = "LabelControl",
+        LBLC_DropDownButton = false,
+        INP_External = false,
+        INP_Passive = true,
+    })
+
+    InDespill = self:AddInput("Despill Strength", "DespillStrength", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_Default = 0.5,
+        INP_MinAllowed = 0.0,
+        INP_MaxAllowed = 1.0,
+        INP_MinScale = 0.0,
+        INP_MaxScale = 1.0,
+    })
+
+    InFormat = self:AddInput("Output Format", "OutputFormat", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "ComboControl",
+        INP_Default = 0.0,
+        INP_Integer = true,
+        { CCS_AddString = "Apple ProRes 4444 (RGBA Cutout)" },
+        { CCS_AddString = "OpenEXR Sequence (16-bit Half)" },
+        { CCS_AddString = "H.264 Video (Alpha + Clean FG)" },
+    })
+
+    InLowVRAM = self:AddInput("Force Low VRAM Mode", "ForceLowVRAM", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "CheckboxControl",
+        INP_Default = 0.0,
+        INP_Integer = true,
+    })
+
+    InStatus = self:AddInput("Status", "Status", {
+        LINKID_DataType = "Text",
+        INPID_InputControl = "LabelControl",
+        INP_Default = "Ready to Render",
+        LBLC_DropDownButton = false,
+        INP_External = false,
+        INP_Passive = true,
+    })
+
+    InRender = self:AddInput("🚀 Render CorridorKey Matte", "RenderButton", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "ButtonControl",
+        INP_DoNotifyChanged = true,
+        INP_External = false,
+    })
+
+    InOpenFolder = self:AddInput("📁 Open Output Folder", "OpenFolderButton", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "ButtonControl",
+        INP_DoNotifyChanged = true,
+        INP_External = false,
+    })
+
+    self:EndControlNest()
+end
+
+function NotifyChanged(inp, param)
+    if inp == InRender and param.Value == 1 then
+        local node_name = self.Name
+        local despill = InDespill:GetValue(self.Comp.CurrentTime).Value
+        local fmt = InFormat:GetValue(self.Comp.CurrentTime).Value
+        local low_vram = InLowVRAM:GetValue(self.Comp.CurrentTime).Value
+
+        -- Update UI status in Inspector
+        InStatus:SetAttrs({ INP_Default = "Starting background AI inference..." })
+
+        -- Execute background python controller
+        local script_path = [[K:/________________VFXEdu_Script/CorridorKeyer2.0/resolve/fusion/corridorkey_fusion.py]]
+        local py_exe = [[K:/________________VFXEdu_Script/CorridorKeyer2.0/venv/Scripts/python.exe]]
+
+        -- Check portable fallback if exists
+        local portable_py = [[K:/CorridorKey2.0/CorridorKeyer2.0_Portable_v0.1.1/python_embed/python.exe]]
+        local f = io.open(portable_py, "r")
+        if f then
+            f:close()
+            py_exe = portable_py
+            script_path = [[K:/CorridorKey2.0/CorridorKeyer2.0_Portable_v0.1.1/resolve/fusion/corridorkey_fusion.py]]
+        end
+
+        local cmd = string.format('start /b "" "%s" "%s" --node "%s" --despill %.2f --fmt %d --low-vram %d',
+            py_exe, script_path, node_name, despill, fmt, low_vram)
+        os.execute(cmd)
+
+    elseif inp == InOpenFolder and param.Value == 1 then
+        local out_dir = [[K:/CorridorKey_Renders]]
+        os.execute(string.format('start "" "%s"', out_dir))
+    end
+end
+
+function Process(req)
+    local img = InImage:GetValue(req)
+    if not img then
+        return
+    end
+
+    -- Pass-through video stream to Output
+    OutImage:Set(req, img)
+end

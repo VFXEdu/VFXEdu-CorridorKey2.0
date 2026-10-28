@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
-"""One-click DaVinci Resolve Integration Installer & Uninstaller for CorridorKey 2.0."""
+"""One-click DaVinci Resolve Integration Installer & Uninstaller for CorridorKey 2.0.
+
+Installs both:
+1. Native Fusion Fuse Node (CorridorKeyer.fuse) for 100% zero-popup Inspector node usage in the Fusion page.
+2. Edit / Color Page Script Launcher (CorridorKeyer.py) under Workspace -> Scripts.
+"""
 
 from __future__ import annotations
 
 import argparse
 import os
 from pathlib import Path
+import re
+import shutil
 import sys
 
 
@@ -46,6 +53,35 @@ def get_resolve_script_dirs() -> list[Path]:
     return dirs
 
 
+def get_resolve_fuse_dirs() -> list[Path]:
+    """Return list of standard DaVinci Resolve Fuses directories."""
+    dirs: list[Path] = []
+
+    # Windows AppData
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        dirs.append(Path(appdata) / "Blackmagic Design" / "DaVinci Resolve" / "Support" / "Fusion" / "Fuses" / "Keyer")
+        dirs.append(Path(appdata) / "Blackmagic Design" / "DaVinci Resolve" / "Support" / "Fusion" / "Fuses")
+
+    # Windows ProgramData
+    programdata = os.environ.get("PROGRAMDATA")
+    if programdata:
+        dirs.append(Path(programdata) / "Blackmagic Design" / "DaVinci Resolve" / "Support" / "Fusion" / "Fuses" / "Keyer")
+        dirs.append(Path(programdata) / "Blackmagic Design" / "DaVinci Resolve" / "Support" / "Fusion" / "Fuses")
+
+    # macOS
+    mac_base = Path.home() / "Library" / "Application Support" / "Blackmagic Design" / "DaVinci Resolve" / "Fusion" / "Fuses"
+    if mac_base.parent.exists():
+        dirs.append(mac_base / "Keyer")
+
+    # Linux
+    linux_base = Path("/opt/resolve/Fusion/Fuses")
+    if linux_base.parent.exists():
+        dirs.append(linux_base / "Keyer")
+
+    return dirs
+
+
 def create_launcher_script_content(repo_root: Path) -> str:
     """Generate the contents of CorridorKeyer.py launcher stub."""
     norm_root = repo_root.resolve().as_posix()
@@ -56,8 +92,6 @@ import sys
 from pathlib import Path
 
 CORRIDORKEY_ROOT = Path(r"{norm_root}")
-
-# Set environment variable so child processes locate root
 os.environ["CORRIDORKEY_ROOT"] = str(CORRIDORKEY_ROOT)
 
 resolve_dir = CORRIDORKEY_ROOT / "resolve"
@@ -75,58 +109,92 @@ except Exception as e:
 
 
 def install(repo_root: Path) -> bool:
-    """Deploy CorridorKeyer.py launcher script to DaVinci Resolve script directories."""
+    """Deploy CorridorKeyer to DaVinci Resolve (both Fusion Fuses and Scripts)."""
     repo_root = repo_root.resolve()
-    if not (repo_root / "resolve" / "corridorkey_resolve.py").is_file():
-        print(f"[ERROR] 'resolve/corridorkey_resolve.py' not found in {repo_root}")
+    fuse_src = repo_root / "resolve" / "fusion" / "CorridorKeyer.fuse"
+    if not fuse_src.is_file():
+        print(f"[ERROR] 'resolve/fusion/CorridorKeyer.fuse' not found in {repo_root}")
         return False
 
-    script_content = create_launcher_script_content(repo_root)
-    target_dirs = get_resolve_script_dirs()
-
     installed_paths = []
-    for d in target_dirs:
+
+    # 1. Install Fusion Fuse Node (.fuse)
+    fuse_content = fuse_src.read_text(encoding="utf-8")
+    norm_root = repo_root.as_posix()
+    fuse_content = fuse_content.replace(
+        "K:/________________VFXEdu_Script/CorridorKeyer2.0",
+        norm_root
+    )
+
+    for fd in get_resolve_fuse_dirs():
         try:
-            d.mkdir(parents=True, exist_ok=True)
-            target_file = d / "CorridorKeyer.py"
-            target_file.write_text(script_content, encoding="utf-8")
-            installed_paths.append(target_file)
-        except Exception as e:
-            # Skip read-only directories like ProgramData if not running as admin
+            fd.mkdir(parents=True, exist_ok=True)
+            target_fuse = fd / "CorridorKeyer.fuse"
+            target_fuse.write_text(fuse_content, encoding="utf-8")
+            installed_paths.append(target_fuse)
+        except Exception:
+            pass
+
+    # 2. Install Edit/Color Workspace Script Launcher (.py)
+    script_content = create_launcher_script_content(repo_root)
+    for sd in get_resolve_script_dirs():
+        try:
+            sd.mkdir(parents=True, exist_ok=True)
+            target_script = sd / "CorridorKeyer.py"
+            target_script.write_text(script_content, encoding="utf-8")
+            installed_paths.append(target_script)
+        except Exception:
             pass
 
     if not installed_paths:
-        print("[ERROR] Could not write to any DaVinci Resolve script directories.")
+        print("[ERROR] Could not write to DaVinci Resolve directories.")
         return False
 
     print("\n" + "=" * 65)
     print(" [SUCCESS] CorridorKey 2.0 has been successfully linked to DaVinci Resolve!")
     print("=" * 65)
+    print("  Installed Components:")
     for p in installed_paths:
-        print(f"  Installed: {p}")
+        print(f"   - {p}")
+    print("=" * 65)
+    print("  1. Fusion Page: Press 'Shift + Space' and search for 'CorridorKeyer'")
+    print("                  (100% Zero-Popup Inspector Node!)")
+    print("  2. Edit/Color : Menu 'Workspace' -> 'Scripts' -> 'CorridorKeyer'")
     print("=" * 65)
     return True
 
 
 def uninstall() -> bool:
-    """Remove CorridorKeyer.py launcher from DaVinci Resolve script directories."""
-    target_dirs = get_resolve_script_dirs()
+    """Remove CorridorKeyer from DaVinci Resolve Fuses and Scripts."""
     removed = 0
-    for d in target_dirs:
-        target_file = d / "CorridorKeyer.py"
-        if target_file.is_file():
+
+    # 1. Remove Fuses
+    for fd in get_resolve_fuse_dirs():
+        target_fuse = fd / "CorridorKeyer.fuse"
+        if target_fuse.is_file():
             try:
-                target_file.unlink()
-                print(f"[*] Removed: {target_file}")
+                target_fuse.unlink()
+                print(f"[*] Removed Fuse: {target_fuse}")
+                removed += 1
+            except Exception:
+                pass
+
+    # 2. Remove Scripts
+    for sd in get_resolve_script_dirs():
+        target_script = sd / "CorridorKeyer.py"
+        if target_script.is_file():
+            try:
+                target_script.unlink()
+                print(f"[*] Removed Script: {target_script}")
                 removed += 1
             except Exception:
                 pass
 
     print("\n" + "=" * 65)
     if removed > 0:
-        print(f" [SUCCESS] Removed CorridorKeyer script from {removed} Resolve directory(ies).")
+        print(f" [SUCCESS] Removed CorridorKeyer from {removed} Resolve location(s).")
     else:
-        print(" [*] No CorridorKeyer script found in DaVinci Resolve directories.")
+        print(" [*] No CorridorKeyer files found in DaVinci Resolve directories.")
     print("=" * 65)
     return True
 

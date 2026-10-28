@@ -33,9 +33,9 @@ if errorlevel 1 (
 echo.
 echo =====================================================================
 echo   [Next Steps]
-echo   1. Launch or switch to DaVinci Resolve (Edit or Color page).
-echo   2. Position the playhead over any video clip on the timeline.
-echo   3. Click top menu: 'Workspace' -^> 'Scripts' -^> 'CorridorKeyer'.
+echo   1. Fusion Page: Press 'Shift + Space' in the Node Flow and add 'CorridorKeyer'.
+echo                   (Zero-Popup Native Node with controls in the Inspector!)
+echo   2. Edit/Color : Top menu 'Workspace' -^> 'Scripts' -^> 'CorridorKeyer'.
 echo =====================================================================
 echo.
 pause
