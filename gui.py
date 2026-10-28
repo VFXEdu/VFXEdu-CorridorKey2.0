@@ -65,15 +65,30 @@ VIDEO_EXTS = {'.mp4', '.mov', '.mkv', '.avi', '.webm', '.m4v'}
 IMAGE_EXTS = {'.png', '.jpg', '.jpeg', '.exr', '.tiff', '.tif', '.webp', '.dpx'}
 
 
-def get_system_telemetry() -> str:
-    """Query live GPU VRAM and Disk space."""
-    gpu_str = "GPU: N/A"
+def get_gpu_vram_info() -> tuple[float, float, float, float, str]:
+    """Query live GPU VRAM. Returns (used_gb, free_gb, tot_gb, pct, gpu_name)."""
     try:
         if torch.cuda.is_available():
             free_b, tot_b = torch.cuda.mem_get_info()
-            gpu_str = f"GPU: {tot_b/(1024**3):.1f} GB for CorridorKey, {free_b/(1024**3):.1f} GB free"
+            used_b = max(0, tot_b - free_b)
+            used_gb = used_b / (1024**3)
+            free_gb = free_b / (1024**3)
+            tot_gb = tot_b / (1024**3)
+            pct = (used_b / tot_b) * 100 if tot_b > 0 else 0.0
+            name = torch.cuda.get_device_name(0)
+            return (used_gb, free_gb, tot_gb, pct, name)
     except Exception:
         pass
+    return (0.0, 0.0, 0.0, 0.0, "CPU (No CUDA)")
+
+
+def get_system_telemetry() -> str:
+    """Query live GPU VRAM and Disk space with accurate, non-misleading labels."""
+    used_gb, free_gb, tot_gb, pct, gpu_name = get_gpu_vram_info()
+    if tot_gb > 0:
+        gpu_str = f"GPU: {gpu_name} · VRAM: {used_gb:.1f} / {tot_gb:.1f} GB ({free_gb:.1f} GB free)"
+    else:
+        gpu_str = "GPU: Not Detected (CPU Mode)"
 
     disk_str = "Disk: N/A"
     try:
@@ -934,11 +949,13 @@ class Window(QMainWindow):
 
         self.combo_gpu_limit = QComboBox()
         self.combo_gpu_limit.addItems(["Auto", "24 GB (RTX 4090)", "16 GB (RTX 4080)", "12 GB (RTX 3060)", "8 GB"])
+        self.combo_gpu_limit.currentIndexChanged.connect(lambda _: self.update_deliver_vram_diagnosis())
         self.lbl_row_gpu_limit = QLabel(tr("wb_gpu_mem_limit"))
         f_mem.addRow(self.lbl_row_gpu_limit, self.combo_gpu_limit)
 
         self.low_vram = QCheckBox(tr("chk_low_vram"))
         self.low_vram.setToolTip(tr("chk_low_vram_tip"))
+        self.low_vram.toggled.connect(lambda _: self.update_deliver_vram_diagnosis())
         f_mem.addRow("", self.low_vram)
 
         self.hann_mode = QComboBox()
@@ -1234,10 +1251,11 @@ class Window(QMainWindow):
         self.lbl_format_note.setWordWrap(True)
         v_deliv.addWidget(self.lbl_format_note)
 
-        # Diagnosis string
-        self.lbl_deliver_vram = QLabel("Fits in GPU memory: 18.2 of 24.0 GB free · Frames 1-121")
+        # Diagnosis string (dynamically updated against real GPU hardware)
+        self.lbl_deliver_vram = QLabel("")
         self.lbl_deliver_vram.setStyleSheet("color:#7e8b9d; font-size:10px;")
         v_deliv.addWidget(self.lbl_deliver_vram)
+        self.update_deliver_vram_diagnosis()
 
         # Action Buttons: [Render All] [Render] [📁]
         h_deliv_btns = QHBoxLayout()
@@ -1462,28 +1480,22 @@ class Window(QMainWindow):
 
     def _update_telemetry(self):
         """Periodically refresh hardware telemetry string and live GPU metrics."""
-        used_gb, tot_gb, pct, gpu_name = 0.0, 0.0, 0.0, "N/A"
-        has_cuda = False
-        try:
-            if torch.cuda.is_available():
-                free_b, tot_b = torch.cuda.mem_get_info()
-                used_b = tot_b - free_b
-                used_gb = used_b / (1024**3)
-                tot_gb = tot_b / (1024**3)
-                pct = (used_b / tot_b) * 100 if tot_b > 0 else 0.0
-                gpu_name = torch.cuda.get_device_name(0)
-                has_cuda = True
-        except Exception:
-            pass
+        used_gb, free_gb, tot_gb, pct, gpu_name = get_gpu_vram_info()
+        has_cuda = (tot_gb > 0)
 
         if has_cuda:
             gpu_mem_text = f"{used_gb:.1f} / {tot_gb:.1f} GB"
             badge_text = f"⚡ GPU: {used_gb:.1f}/{tot_gb:.1f} GB ({pct:.0f}%)"
-            tip = f"{gpu_name}\nGPU VRAM: {pct:.1f}% ({used_gb:.2f} GB used / {tot_gb:.2f} GB total)"
+            tip = (
+                f"Device: {gpu_name}\n"
+                f"Used VRAM: {used_gb:.2f} GB ({pct:.1f}%)\n"
+                f"Free VRAM: {free_gb:.2f} GB\n"
+                f"Total Physical VRAM: {tot_gb:.2f} GB"
+            )
         else:
             gpu_mem_text = "N/A"
             badge_text = "⚡ GPU: N/A"
-            tip = "CUDA GPU not detected"
+            tip = "CUDA GPU not detected (CPU Mode)"
 
         if hasattr(self, 'badge_gpu'):
             self.badge_gpu.setText(badge_text)
@@ -1496,6 +1508,88 @@ class Window(QMainWindow):
             self.lbl_insp_gpu_val.setToolTip(tip)
         if hasattr(self, 'lbl_telemetry'):
             self.lbl_telemetry.setText(get_system_telemetry())
+            self.lbl_telemetry.setToolTip(tip)
+
+        if hasattr(self, 'lbl_deliver_vram'):
+            self.update_deliver_vram_diagnosis()
+
+    def update_deliver_vram_diagnosis(self):
+        """Dynamically diagnose active clip VRAM requirement against real GPU hardware."""
+        used_gb, free_gb, tot_gb, pct, gpu_name = get_gpu_vram_info()
+        has_gpu = (tot_gb > 0)
+
+        if not hasattr(self, 'lbl_deliver_vram'):
+            return
+
+        if not self.current_clip_path or self.queue.count() == 0:
+            if has_gpu:
+                self.lbl_deliver_vram.setText(
+                    tr('vram_diag_idle', free=f"{free_gb:.1f}", total=f"{tot_gb:.1f}")
+                )
+                self.lbl_deliver_vram.setStyleSheet("color:#7e8b9d; font-size:10px;")
+            else:
+                self.lbl_deliver_vram.setText(tr('vram_diag_cpu'))
+                self.lbl_deliver_vram.setStyleSheet("color:#e5a93c; font-size:10px;")
+            return
+
+        clip_key = str(self.current_clip_path.resolve())
+        meta = self._clip_cache.get(clip_key, {})
+        w = meta.get('w', 1920)
+        h = meta.get('h', 1080)
+        n_frames = meta.get('n_frames', 0)
+        is_low_vram = self.low_vram.isChecked() if hasattr(self, 'low_vram') else False
+
+        # Calculate estimated peak VRAM using official CorridorKey formula
+        try:
+            from corridorkey.runtime import estimate_peak_vram_gb, select_vram_profile
+            mp = (w * h) / 1e6
+            chunk, stride, auto_low, est_peak = select_vram_profile((h, w), max(1, n_frames), max(1.0, free_gb))
+            if is_low_vram:
+                est_peak = estimate_peak_vram_gb(mp, min(chunk, max(1, n_frames)), low_vram=True)
+            est_vram_str = f"{est_peak:.1f}"
+        except Exception:
+            est_peak = 14.0 if (w * h >= 3840 * 2160) else (5.8 if (w * h >= 1920 * 1080) else 3.2)
+            if is_low_vram:
+                est_peak *= 0.55
+            est_vram_str = f"{est_peak:.1f}"
+
+        if has_gpu:
+            fits = (free_gb >= est_peak)
+            if fits:
+                msg = tr(
+                    'vram_diag_fits',
+                    req=est_vram_str,
+                    free=f"{free_gb:.1f}",
+                    total=f"{tot_gb:.1f}",
+                    frames=n_frames,
+                    res=f"{w}x{h}"
+                )
+                self.lbl_deliver_vram.setText(msg)
+                self.lbl_deliver_vram.setStyleSheet("color:#4ade80; font-size:10px; font-weight:bold;")
+            else:
+                msg = tr(
+                    'vram_diag_tight',
+                    req=est_vram_str,
+                    free=f"{free_gb:.1f}",
+                    total=f"{tot_gb:.1f}",
+                    frames=n_frames,
+                    res=f"{w}x{h}"
+                )
+                self.lbl_deliver_vram.setText(msg)
+                self.lbl_deliver_vram.setStyleSheet("color:#f59e0b; font-size:10px; font-weight:bold;")
+
+            self.lbl_deliver_vram.setToolTip(
+                f"Device: {gpu_name}\n"
+                f"Estimated Peak VRAM: ~{est_vram_str} GB\n"
+                f"Free VRAM: {free_gb:.2f} GB\n"
+                f"Total Physical VRAM: {tot_gb:.2f} GB\n"
+                f"Currently Used VRAM: {used_gb:.2f} GB\n"
+                f"Resolution: {w}x{h} ({n_frames} frames)\n"
+                f"Low-VRAM: {'ON' if is_low_vram else 'OFF'}"
+            )
+        else:
+            self.lbl_deliver_vram.setText(tr('vram_diag_cpu'))
+            self.lbl_deliver_vram.setStyleSheet("color:#e5a93c; font-size:10px;")
 
     # =========================================================================
     # Media Loading & Syncing with Viewport / Filmstrip
@@ -1568,11 +1662,8 @@ class Window(QMainWindow):
         # Display first frame in viewport
         self.show_frame_in_viewport(0)
 
-        # Update deliver memory string
-        est_vram = 5.5 if (w >= 1920) else 3.2
-        self.lbl_deliver_vram.setText(
-            f"Fits in GPU memory: {est_vram:.1f} of 24.0 GB · {n_frames} frames ({w}x{h})"
-        )
+        # Dynamically diagnose VRAM requirement against real GPU hardware
+        self.update_deliver_vram_diagnosis()
 
         # Auto-detect companion hint specifically for this clip
         self.auto_detect_companion_hint(clip_path)
@@ -2001,6 +2092,10 @@ class Window(QMainWindow):
         if self.proc.state() == QProcess.NotRunning:
             self.status.setText(tr('status_ready'))
         self.lbl_lic_badge.setText(tr('license_badge'))
+        if hasattr(self, 'lbl_deliver_vram'):
+            self.update_deliver_vram_diagnosis()
+        if hasattr(self, 'lbl_telemetry'):
+            self.lbl_telemetry.setText(get_system_telemetry())
 
     def _on_language_changed(self, idx: int):
         lang = self.combo_lang.itemData(idx)
@@ -2153,6 +2248,8 @@ class Window(QMainWindow):
         self.filmstrip.load_clip_metadata(0, 24.0, [])
         if hasattr(self, 'queue_info'):
             self.queue_info.setText(tr('wb_queue_empty'))
+        if hasattr(self, 'lbl_deliver_vram'):
+            self.update_deliver_vram_diagnosis()
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():

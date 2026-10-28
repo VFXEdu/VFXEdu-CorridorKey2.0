@@ -248,6 +248,37 @@ class DesktopTests(unittest.TestCase):
         self.assertTrue(self.w.run_button.isEnabled())
         self.assertFalse(self.w.stop_button.isEnabled())
 
+    def test_accurate_gpu_vram_telemetry_and_diagnosis(self):
+        """Verify accurate real-time GPU VRAM telemetry and Deliver panel diagnosis."""
+        used, free, total, pct, name = gui.get_gpu_vram_info()
+        self.assertIsInstance(used, float)
+        self.assertIsInstance(total, float)
+
+        telem = gui.get_system_telemetry()
+        # Must not contain old misleading mock text
+        self.assertNotIn('for CorridorKey', telem)
+        self.assertIn('VRAM:', telem)
+
+        # Deliver diagnosis must not be hardcoded mock
+        diag = self.w.lbl_deliver_vram.text()
+        self.assertNotIn('Frames 1-121', diag)
+        self.assertNotIn('18.2 of 24.0 GB free', diag)
+
+        # Test with a synthetic clip loaded
+        video = Path(self.temp.name) / 'vram_test.mp4'
+        writer = cv2.VideoWriter(str(video), cv2.VideoWriter_fourcc(*'mp4v'), 24, (1920, 1080))
+        writer.write(np.zeros((1080, 1920, 3), dtype=np.uint8))
+        writer.release()
+        self.w.add_paths([str(video)])
+
+        clip_diag = self.w.lbl_deliver_vram.text()
+        self.assertIn('1920x1080', clip_diag)
+
+        # Toggling low_vram updates diagnosis in real time
+        self.w.low_vram.setChecked(True)
+        toggled_diag = self.w.lbl_deliver_vram.text()
+        self.assertIn('1920x1080', toggled_diag)
+
     def test_about_license_dialog(self):
         dlg = gui.AboutLicenseDialog(self.w)
         self.assertIsNotNone(dlg)
