@@ -276,30 +276,11 @@ class DesktopTests(unittest.TestCase):
         self.w.original.slider.setValue(3)
         self.assertTrue('frame 4' in self.w.original.caption.text().lower() or '프레임 4' in self.w.original.caption.text())
 
-    def test_rgvi_clean_plate_integration(self):
-        """Test RGVI options handling and clean plate argument generation."""
-        self.w.outputs['clean_plate'].setChecked(True)
-        self.w.outputs['alpha'].setChecked(False)
-        self.w.outputs['checker'].setChecked(False)
-        opts = self.w.options()
-        self.assertTrue(opts['clean_plate'])
-        self.assertIn('alpha', opts['outputs'])
-
-        dest = Path(self.temp.name) / 'rgvi_job'
-        args = gui.make_arguments(self.source, dest, opts)
-        self.assertIn('alpha', args[args.index('--outputs'):])
-
-        # Test RGVIRemover import and initialization
-        import inpaint_rgvi
-        self.assertTrue(hasattr(inpaint_rgvi, 'remove_object_rgvi'))
-        self.assertTrue(hasattr(inpaint_rgvi, 'RGVIRemover'))
-
     def test_model_manager_status_and_dialog(self):
         """Test model manager registry, status checks, and visual dialog components."""
         from model_manager import (
             check_model_status,
             are_required_models_installed,
-            is_clean_plate_installed,
             ModelManagerDialog,
             MODEL_REGISTRY,
         )
@@ -310,10 +291,8 @@ class DesktopTests(unittest.TestCase):
         self.assertIn('cradio', st)
         self.assertIn('moge', st)
         self.assertIn('rvm', st)
-        self.assertIn('rgvi', st)
 
         self.assertTrue(are_required_models_installed())
-        self.assertTrue(is_clean_plate_installed())
 
         # Test ModelManagerDialog instantiation
         dlg = ModelManagerDialog(self.w)

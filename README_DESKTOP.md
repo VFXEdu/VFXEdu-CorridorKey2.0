@@ -80,20 +80,7 @@
 
 ---
 
-### 4. 🪄 RGVI (AAAI 2025) 비디오 오브젝트 리무버 & 클린 플레이트 (Clean Plate)
-- **최신 SOTA 영상 인페인팅 엔진 탑재**:
-  - 연세대학교 & Adobe Research 팀의 최신 논문 *"Elevating Flow-Guided Video Inpainting with Reference Generation"* (AAAI 2025) 파이프라인을 완전 통합 탑재했습니다.
-  - 마스크로 지정한 인물, 와이어, 장비, 불필요한 물체를 영상에서 감쪽같이 지우고 깨끗한 배경을 복원합니다.
-- **원클릭 통합 워크플로우**:
-  - `02 출력 설정`에서 **`[✔] 클린 플레이트 (RGVI 배경 복원)`**을 체크하면 CorridorKey 2.0이 객체 마스크를 정밀하게 자동 추적하고, RGVI 엔진이 이어서 고화질 클린 플레이트(`<clip>_clean_plate.mp4`)를 자동 렌더링합니다.
-  - 브러시 마스크 편집기에서 **`[✨ 객체 지우기 (RGVI)]`** 버튼을 누르면 마스크 저장과 동시에 클린 플레이트 모드가 즉시 세팅됩니다.
-- **VFX 프로덕션급 화질**:
-  - AI 생성 그림체로 뭉개지는 기존 디퓨전 방식과 달리, **실제 카메라에 찍힌 다른 시간대의 배경 픽셀을 양방향 옵티컬 플로우(RAFT + FCNet)와 원샷 픽셀 풀링(One-Shot Pulling)**으로 당겨와 1:1 합성하므로 노이즈, 필름 그레인, 디테일이 100% 원본 그대로 살아납니다.
-  - 독립 CLI 실행 지원: `python inpaint_rgvi.py --video <input.mp4> --mask <alpha.mp4> --output <clean.mp4>`
-
----
-
-### 5. 📜 저작권 및 무료 배포 가이드 (About & License)
+### 4. 📜 저작권 및 무료 배포 가이드 (About & License)
 - 상단 헤더의 **[ℹ️ About & License]** 버튼을 통해 라이선스 전문(CC BY-NC-SA 4.0), 파운데이션 모델 서드파티 고지, 저작권 크레딧을 언제든지 열람할 수 있습니다.
 - 상세한 배포 체크리스트 및 가이드는 [DISTRIBUTION_GUIDE.md](file:///k:/________________VFXEdu_Script/CorridorKeyer2.0/DISTRIBUTION_GUIDE.md)를 참고하세요.
 

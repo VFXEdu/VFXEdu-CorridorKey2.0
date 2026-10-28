@@ -63,7 +63,6 @@ PLACEHOLDER_DIRS = [
     "vfms/cradio",
     "vfms/moge",
     "vfms/rvm",
-    "third_party/RGVI/weights",
     "outputs",
     "tmp",
     "bin",

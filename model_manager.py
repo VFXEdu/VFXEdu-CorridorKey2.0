@@ -83,30 +83,6 @@ MODEL_REGISTRY: Dict[str, dict] = {
         "check_file": "vfms/rvm/pretrain_rvm_small16_256_204031069.npz",
         "min_size": 100_000_000,
     },
-    "rgvi": {
-        "id": "rgvi",
-        "name": "RGVI Clean Plate Inpainting (AAAI 2025)",
-        "category": "optional",
-        "size_str": "~47.3 MB",
-        "source": "Google Drive · Yonsei Univ / Adobe",
-        "license": "Research / Non-Commercial",
-        "desc": "Object removal, reference flow generation & background filling (FCNet + PFCNet).",
-        "files": ["third_party/RGVI/weights/FCNet.pth", "third_party/RGVI/weights/PFCNet.pth"],
-        "check_file": "third_party/RGVI/weights/PFCNet.pth",
-        "min_size": 10_000_000,
-    },
-    "sd_inpaint": {
-        "id": "sd_inpaint",
-        "name": "Stable Diffusion Inpainting (RGVI AI Generator)",
-        "category": "optional",
-        "size_str": "~4.1 GB",
-        "source": "Hugging Face · runwayml/stable-diffusion-inpainting",
-        "license": "CreativeML OpenRAIL-M",
-        "desc": "Photorealistic background texture synthesis for RGVI Clean Plate Inpainting.",
-        "files": [],
-        "check_file": "",
-        "min_size": 1_000_000,
-    },
 }
 
 
@@ -128,17 +104,8 @@ def check_model_status(package_root: Optional[Path] = None) -> Dict[str, dict]:
                 all_present = False
                 missing.append(rel)
 
-        # Primary check threshold
-        if mid == "sd_inpaint":
-            try:
-                from huggingface_hub import try_to_load_from_cache
-                is_installed = try_to_load_from_cache("runwayml/stable-diffusion-inpainting", "model_index.json") is not None
-            except Exception:
-                is_installed = False
-            total_bytes = 4_100_000_000 if is_installed else 0
-        else:
-            chk_p = root / info["check_file"]
-            is_installed = all_present and chk_p.is_file() and chk_p.stat().st_size >= info["min_size"]
+        chk_p = root / info["check_file"]
+        is_installed = all_present and chk_p.is_file() and chk_p.stat().st_size >= info["min_size"]
 
         status[mid] = {
             **info,
@@ -155,21 +122,6 @@ def are_required_models_installed(package_root: Optional[Path] = None) -> bool:
     """Return True if all 4 required keying models are installed."""
     status = check_model_status(package_root)
     return all(s["installed"] for s in status.values() if s["category"] == "required")
-
-
-def is_clean_plate_installed(package_root: Optional[Path] = None) -> bool:
-    """Return True if RGVI clean plate inpainting models are installed."""
-    status = check_model_status(package_root)
-    return status.get("rgvi", {}).get("installed", False)
-
-
-def is_sd_inpaint_installed() -> bool:
-    """Return True if Stable Diffusion Inpainting model is cached locally."""
-    try:
-        from huggingface_hub import try_to_load_from_cache
-        return try_to_load_from_cache("runwayml/stable-diffusion-inpainting", "model_index.json") is not None
-    except Exception:
-        return False
 
 
 def get_missing_required_models(package_root: Optional[Path] = None) -> List[str]:
@@ -434,17 +386,19 @@ class ModelManagerDialog(QDialog):
                 self.cards[mid] = card
                 self.cards_layout.addWidget(card)
 
-        # 2. Optional Models Header
-        self.lbl_opt_hdr = QLabel(f"━━━  {tr('model_mgr_opt_header')}  ━━━")
-        self.lbl_opt_hdr.setStyleSheet("color: #8fa3bf; font-weight: bold; font-size: 12px; margin-top: 8px;")
-        self.cards_layout.addWidget(self.lbl_opt_hdr)
+        # 2. Optional Models Header (if any)
+        has_optional = any(info["category"] == "optional" for info in MODEL_REGISTRY.values())
+        if has_optional:
+            self.lbl_opt_hdr = QLabel(f"━━━  {tr('model_mgr_opt_header')}  ━━━")
+            self.lbl_opt_hdr.setStyleSheet("color: #8fa3bf; font-weight: bold; font-size: 12px; margin-top: 8px;")
+            self.cards_layout.addWidget(self.lbl_opt_hdr)
 
-        for mid, info in MODEL_REGISTRY.items():
-            if info["category"] == "optional":
-                card = ModelCardWidget(info, self)
-                card.download_requested.connect(self.start_download)
-                self.cards[mid] = card
-                self.cards_layout.addWidget(card)
+            for mid, info in MODEL_REGISTRY.items():
+                if info["category"] == "optional":
+                    card = ModelCardWidget(info, self)
+                    card.download_requested.connect(self.start_download)
+                    self.cards[mid] = card
+                    self.cards_layout.addWidget(card)
 
         self.cards_layout.addStretch()
         scroll.setWidget(cards_container)
@@ -506,23 +460,6 @@ class ModelManagerDialog(QDialog):
         self.btn_dl_required.clicked.connect(lambda: self.start_download("required"))
         h_actions.addWidget(self.btn_dl_required)
 
-        self.btn_dl_rgvi = QPushButton(tr("model_mgr_btn_dl_rgvi"))
-        self.btn_dl_rgvi.setStyleSheet("""
-            QPushButton {
-                background: #203f5e;
-                border: 1px solid #366491;
-                color: #bde3ff;
-                font-weight: bold;
-                padding: 8px 14px;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background: #285178;
-            }
-        """)
-        self.btn_dl_rgvi.clicked.connect(lambda: self.start_download("rgvi"))
-        h_actions.addWidget(self.btn_dl_rgvi)
-
         h_actions.addStretch()
 
         self.btn_refresh = QPushButton(tr("model_mgr_btn_refresh"))
@@ -563,7 +500,11 @@ class ModelManagerDialog(QDialog):
         else:
             self.lbl_summary_req.setText(f"<span style='color:#e06c75;'>✘ {tr('model_mgr_req_header')}: {req_total - req_installed} {tr('model_mgr_missing')} ({req_installed}/{req_total})</span>")
 
-        self.lbl_summary_opt.setText(f"{tr('model_mgr_opt_header')}: {opt_installed}/{opt_total} {tr('model_mgr_installed')}")
+        if opt_total > 0:
+            self.lbl_summary_opt.setVisible(True)
+            self.lbl_summary_opt.setText(f"{tr('model_mgr_opt_header')}: {opt_installed}/{opt_total} {tr('model_mgr_installed')}")
+        else:
+            self.lbl_summary_opt.setVisible(False)
 
     def start_download(self, target: str):
         """Launch download process in background."""
@@ -573,7 +514,6 @@ class ModelManagerDialog(QDialog):
         self.current_download_target = target
         self.btn_cancel.setVisible(True)
         self.btn_dl_required.setEnabled(False)
-        self.btn_dl_rgvi.setEnabled(False)
         self.prog_bar.setRange(0, 0)  # Pulse mode
 
         disp_target = MODEL_REGISTRY.get(target, {}).get("name", target)
@@ -600,7 +540,6 @@ class ModelManagerDialog(QDialog):
             self.prog_bar.setValue(0)
             self.btn_cancel.setVisible(False)
             self.btn_dl_required.setEnabled(True)
-            self.btn_dl_rgvi.setEnabled(True)
             self.refresh_all()
 
     def _on_proc_stdout(self):
@@ -635,7 +574,6 @@ class ModelManagerDialog(QDialog):
         self.prog_bar.setValue(100 if exit_code == 0 else 0)
         self.btn_cancel.setVisible(False)
         self.btn_dl_required.setEnabled(True)
-        self.btn_dl_rgvi.setEnabled(True)
 
         if exit_code == 0:
             self.lbl_prog_status.setText(f"<span style='color:#71e0be;'>✔ {tr('status_model_download_done')}</span>")
@@ -662,9 +600,9 @@ class ModelManagerDialog(QDialog):
         self.btn_open_folder.setText(tr("model_mgr_btn_open_folder"))
         self.lbl_root_path.setText(f"{tr('model_mgr_path_lbl')} {ROOT.name}/")
         self.lbl_req_hdr.setText(f"━━━  {tr('model_mgr_req_header')}  ━━━")
-        self.lbl_opt_hdr.setText(f"━━━  {tr('model_mgr_opt_header')}  ━━━")
+        if hasattr(self, 'lbl_opt_hdr'):
+            self.lbl_opt_hdr.setText(f"━━━  {tr('model_mgr_opt_header')}  ━━━")
         self.btn_dl_required.setText(tr("model_mgr_btn_dl_required"))
-        self.btn_dl_rgvi.setText(tr("model_mgr_btn_dl_rgvi"))
         self.btn_refresh.setText(tr("model_mgr_btn_refresh"))
         self.btn_close.setText(tr("model_mgr_btn_close"))
         self.btn_cancel.setText(tr("model_mgr_btn_cancel"))

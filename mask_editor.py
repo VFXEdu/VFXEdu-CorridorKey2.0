@@ -666,7 +666,6 @@ class BrushMaskEditorDialog(QDialog):
     as the primary first-frame matte hint.
     """
     applied_hint = Signal(str)  # Emitted when applied directly as hint with saved file path
-    requested_clean_plate = Signal(str)  # Emitted when requesting RGVI clean plate removal
 
     def __init__(self, rgb_image: np.ndarray, clip_name: str = "clip",
                  initial_mask_path: Optional[str] = None, output_hint_dir: Optional[Path] = None,
@@ -888,14 +887,6 @@ class BrushMaskEditorDialog(QDialog):
         self.btn_apply_hint.clicked.connect(self.apply_as_first_frame_hint)
         v_action.addWidget(self.btn_apply_hint)
 
-        self.btn_clean_plate = QPushButton(tr("be_btn_clean_plate"))
-        self.btn_clean_plate.setStyleSheet(
-            "background:#1b4a68; color:#9ce3ff; font-weight:bold; font-size:12px; padding:9px; border-radius:6px; border:1px solid #31658c;"
-        )
-        self.btn_clean_plate.setToolTip(tr("be_btn_clean_plate_tip"))
-        self.btn_clean_plate.clicked.connect(self.trigger_rgvi_clean_plate)
-        v_action.addWidget(self.btn_clean_plate)
-
         h_exports = QHBoxLayout()
         btn_export_mask = QPushButton(tr("be_btn_export_mask"))
         btn_export_mask.clicked.connect(self.export_mask_file)
@@ -994,28 +985,6 @@ class BrushMaskEditorDialog(QDialog):
                 if QGuiApplication.platformName() != "offscreen":
                     # Non-blocking notification or simple accepted status
                     pass
-                self.accept()
-            else:
-                raise RuntimeError("PNG 인코딩 실패")
-        except Exception as exc:
-            QMessageBox.critical(self, "저장 실패", f"마스크 파일 저장 중 오류:\n{exc}")
-
-    def trigger_rgvi_clean_plate(self):
-        """Save mask and emit signal to trigger RGVI object removal."""
-        if self.canvas.mask is None:
-            QMessageBox.warning(self, "오류", "마스크 데이터가 없습니다.")
-            return
-
-        safe_name = Path(self.clip_name).stem
-        target_path = self.output_hint_dir / f"{safe_name}FrameHint.png"
-
-        try:
-            ok, enc = cv2.imencode(".png", self.canvas.mask)
-            if ok:
-                target_path.write_bytes(enc.tobytes())
-                self.saved_mask_path = str(target_path.resolve())
-                self.applied_hint.emit(self.saved_mask_path)
-                self.requested_clean_plate.emit(self.saved_mask_path)
                 self.accept()
             else:
                 raise RuntimeError("PNG 인코딩 실패")

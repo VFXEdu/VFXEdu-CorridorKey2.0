@@ -50,7 +50,6 @@ from i18n import tr, set_language, get_language, LANG_EN, LANG_KO
 from model_manager import (
     ModelManagerDialog,
     are_required_models_installed,
-    is_clean_plate_installed,
     get_missing_required_models,
 )
 from workbench_widgets import (
@@ -137,8 +136,6 @@ def make_arguments(source: Path, destination: Path, options: dict) -> list[str]:
     if source.is_dir() and not any(p.suffix.lower() in IMAGE_EXTS for p in source.iterdir() if p.is_file()):
         raise ValueError(f'이미지 프레임이 없는 폴더입니다: {source}')
     outputs = list(options.get('outputs') or [])
-    if options.get('clean_plate') and 'alpha' not in outputs:
-        outputs.append('alpha')
     if not outputs:
         raise ValueError('출력을 하나 이상 선택하세요.')
 
@@ -1073,10 +1070,10 @@ class Window(QMainWindow):
         self.sec_despill.addLayout(f_despill)
         acc_layout.addWidget(self.sec_despill)
 
-        # 4. Clean Plate (RGVI Remover)
-        self.sec_clean = CollapsibleSection(tr("wb_sec_clean_plate"), starts_open=True)
-        v_clean = QVBoxLayout()
-        v_clean.setSpacing(6)
+        # 4. Output & Layers Section
+        self.sec_out = CollapsibleSection(tr("wb_sec_output"), starts_open=True)
+        v_out_layers = QVBoxLayout()
+        v_out_layers.setSpacing(4)
 
         self.outputs = {}
         for key, tr_k in [
@@ -1084,40 +1081,10 @@ class Window(QMainWindow):
             ('fg', 'out_fg'),
             ('checker', 'out_checker'),
             ('cutout', 'out_cutout'),
-            ('clean_plate', 'out_clean_plate'),
         ]:
             chk = QCheckBox(tr(tr_k))
             chk.setChecked(key in {'alpha', 'checker'})
             self.outputs[key] = chk
-
-        self.outputs['clean_plate'].toggled.connect(self._on_clean_plate_toggled)
-        v_clean.addWidget(self.outputs['clean_plate'])
-
-        self.row_cp_prompt_widget = QWidget()
-        h_cp_prompt = QVBoxLayout(self.row_cp_prompt_widget)
-        h_cp_prompt.setContentsMargins(0, 2, 0, 2)
-        h_cp_prompt.setSpacing(4)
-        self.lbl_cp_prompt = QLabel(tr('lbl_clean_plate_prompt'))
-        self.lbl_cp_prompt.setStyleSheet('color:#8fa3bf;font-size:11px;')
-        self.clean_plate_prompt = QLineEdit()
-        self.clean_plate_prompt.setPlaceholderText(tr('placeholder_clean_plate_prompt'))
-        self.clean_plate_prompt.setStyleSheet('background:#0f1116;border:1px solid #282d3b;color:#d8e2ed;padding:4px 8px;border-radius:4px;')
-        h_cp_prompt.addWidget(self.lbl_cp_prompt)
-        h_cp_prompt.addWidget(self.clean_plate_prompt)
-        self.row_cp_prompt_widget.setVisible(False)
-        v_clean.addWidget(self.row_cp_prompt_widget)
-
-        lbl_engine_badge = QLabel("✨ Stable Diffusion + RAFT Optical Flow Engine")
-        lbl_engine_badge.setStyleSheet("color:#65778c; font-size:10px;")
-        v_clean.addWidget(lbl_engine_badge)
-
-        self.sec_clean.addLayout(v_clean)
-        acc_layout.addWidget(self.sec_clean)
-
-        # 5. Output & Layers Section
-        self.sec_out = CollapsibleSection(tr("wb_sec_output"), starts_open=False)
-        v_out_layers = QVBoxLayout()
-        v_out_layers.setSpacing(4)
 
         row_chk1 = QHBoxLayout()
         row_chk1.addWidget(self.outputs['alpha'])
@@ -1573,17 +1540,13 @@ class Window(QMainWindow):
                         for f in item.iterdir():
                             if f.is_file() and f.suffix.lower() in VIDEO_EXTS:
                                 nl = f.name.lower()
-                                if 'clean_plate' in nl:
-                                    self.matched_results['clean'] = f
-                                elif 'checker' in nl or 'comp' in nl:
+                                if 'checker' in nl or 'comp' in nl:
                                     self.matched_results['comp'] = f
                                 elif 'alpha' in nl:
                                     self.matched_results['alpha'] = f
                     elif item.is_file() and item.suffix.lower() in VIDEO_EXTS:
                         nl = item.name.lower()
-                        if 'clean_plate' in nl:
-                            self.matched_results['clean'] = item
-                        elif 'checker' in nl or 'comp' in nl:
+                        if 'checker' in nl or 'comp' in nl:
                             self.matched_results['comp'] = item
                         elif 'alpha' in nl:
                             self.matched_results['alpha'] = item
@@ -1627,11 +1590,11 @@ class Window(QMainWindow):
             orig_pix = QPixmap.fromImage(QImage(rgb.data, w, h, rgb.strides[0], QImage.Format_RGB888).copy())
             self.original.pixmap = orig_pix
 
-        # 2. Read result frame (composite, clean plate, or alpha)
+        # 2. Read result frame (composite or alpha)
         comp_pix = None
         alpha_pix = None
 
-        res_path = self.matched_results.get('clean') or self.matched_results.get('comp') or self.matched_results.get('alpha')
+        res_path = self.matched_results.get('comp') or self.matched_results.get('alpha')
         if res_path and res_path.exists():
             cap_res = cv2.VideoCapture(str(res_path))
             cap_res.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
@@ -1653,7 +1616,7 @@ class Window(QMainWindow):
                 rgb_a = cv2.cvtColor(f_a, cv2.COLOR_BGR2RGB)
                 ha, wa, _ = rgb_a.shape
                 alpha_pix = QPixmap.fromImage(QImage(rgb_a.data, wa, ha, rgb_a.strides[0], QImage.Format_RGB888).copy())
-                if 'clean' not in self.matched_results and f is not None:
+                if f is not None:
                     gray_a = cv2.cvtColor(f_a, cv2.COLOR_BGR2GRAY) if f_a.ndim == 3 else f_a
                     if gray_a.shape[:2] != f.shape[:2]:
                         gray_a = cv2.resize(gray_a, (w, h), interpolation=cv2.INTER_LINEAR)
@@ -1693,19 +1656,18 @@ class Window(QMainWindow):
             self.status.setText("📁 Media Bin: Clips & Queue active")
 
         elif key == "layers":
-            # 🎭 Ensure Inspector visible, open Alpha Hint & RGVI, scroll to layer tools
+            # 🎭 Ensure Inspector visible, open Alpha Hint & Output Layers
             sizes = self.split.sizes()
             if sizes[2] <= 10:
                 self.split.setSizes([sizes[0], max(400, sizes[1] - 150), 380])
             self.sec_hint.set_open(True)
-            self.sec_clean.set_open(True)
             if hasattr(self, 'inspector_scroll'):
                 self.inspector_scroll.ensureWidgetVisible(self.sec_hint)
             self.btn_brush_main.setFocus()
             idx_alpha = self.combo_channel.findData("alpha")
             if idx_alpha >= 0:
                 self.combo_channel.setCurrentIndex(idx_alpha)
-            self.status.setText("🎭 Matte & Layers: Alpha Hint & Clean Plate active")
+            self.status.setText("🎭 Matte & Layers: Alpha Hint & Output Layers active")
 
         elif key == "wipe":
             # ↔️ Activate Wipe Split Comparison in Viewport
@@ -1807,12 +1769,6 @@ class Window(QMainWindow):
 
         self.sec_despill.setTitle(tr('wb_sec_despill'))
         self.lbl_row_despill.setText(tr('lbl_despill'))
-
-        self.sec_clean.setTitle(tr('wb_sec_clean_plate'))
-        if hasattr(self, 'lbl_cp_prompt'):
-            self.lbl_cp_prompt.setText(tr('lbl_clean_plate_prompt'))
-        if hasattr(self, 'clean_plate_prompt'):
-            self.clean_plate_prompt.setPlaceholderText(tr('placeholder_clean_plate_prompt'))
 
         self.sec_out.setTitle(tr('wb_sec_output'))
         self.lbl_row_output_dir.setText(tr('lbl_output_dir'))
@@ -2014,17 +1970,7 @@ class Window(QMainWindow):
             self.hint.setText(saved_path)
             self.log.appendPlainText(tr('log_brush_applied', path=saved_path))
 
-        def on_requested_clean_plate(saved_path: str):
-            self.hint_mode.setCurrentIndex(1)
-            self.hint.setText(saved_path)
-            if 'clean_plate' in self.outputs:
-                self.outputs['clean_plate'].setChecked(True)
-            if 'alpha' in self.outputs:
-                self.outputs['alpha'].setChecked(True)
-            self.log.appendPlainText(f'✨ [RGVI] 클린 플레이트 마스크 지정: {saved_path}')
-
         editor.applied_hint.connect(on_applied)
-        editor.requested_clean_plate.connect(on_requested_clean_plate)
         editor.exec()
 
     # =========================================================================
@@ -2061,32 +2007,10 @@ class Window(QMainWindow):
         elif codec == 'libx264':
             self.pix_fmt.setCurrentIndex(0)
 
-    def _on_clean_plate_toggled(self, checked: bool):
-        """Prompt to download RGVI weights if clean plate is enabled and missing."""
-        if hasattr(self, 'row_cp_prompt_widget'):
-            self.row_cp_prompt_widget.setVisible(checked)
-        if checked and not is_clean_plate_installed(ROOT):
-            ret = QMessageBox.question(
-                self,
-                tr('prompt_rgvi_needed_title'),
-                tr('prompt_rgvi_needed_msg'),
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.Yes
-            )
-            if ret == QMessageBox.Yes:
-                self.show_model_manager(initial_target='rgvi')
-            else:
-                self.outputs['clean_plate'].setChecked(False)
-
     def options(self) -> dict:
-        outputs = [k for k, v in self.outputs.items() if v.isChecked() and k != 'clean_plate']
-        clean_plate = bool(self.outputs.get('clean_plate') and self.outputs['clean_plate'].isChecked())
-        if clean_plate and 'alpha' not in outputs:
-            outputs.append('alpha')
+        outputs = [k for k, v in self.outputs.items() if v.isChecked()]
         return dict(
             outputs=outputs,
-            clean_plate=clean_plate,
-            clean_plate_prompt=self.clean_plate_prompt.text().strip() if hasattr(self, 'clean_plate_prompt') else '',
             format=self.format.currentData(),
             exr_dtype=self.exr_dtype.currentData(),
             despill=self.despill.value(),
@@ -2273,25 +2197,6 @@ class Window(QMainWindow):
                     if hasattr(self, 'queue_info') and self.current_source:
                         self.queue_info.setText(f"▶ {self.current_source.name}: {status_msg}")
 
-                # 2. RGVI chunk progress: "[RGVI Window 2/7] Processing frames 20..59"
-                m_rgvi = re.search(r'\[RGVI Window\s+(\d+)/(\d+)\]', line)
-                if m_rgvi:
-                    curr, total = int(m_rgvi.group(1)), int(m_rgvi.group(2))
-                    pct = int((curr / max(1, total)) * 100)
-                    self.progress.setRange(0, 100)
-                    self.progress.setValue(pct)
-                    status_msg = f"Clean Plate Window {curr}/{total} ({pct}%)"
-                    self.status.setText(f"✨ {status_msg}")
-                    if hasattr(self, 'lbl_live_task'):
-                        self.lbl_live_task.setText(f"RGVI Inpainting: {status_msg}")
-                    if hasattr(self, 'queue_info') and self.current_source:
-                        self.queue_info.setText(f"▶ {self.current_source.name} [Inpaint]: {status_msg}")
-
-                # 3. Diffusion step:
-                if "Synthesizing photorealistic reference" in line:
-                    if hasattr(self, 'lbl_live_task'):
-                        self.lbl_live_task.setText("🎨 Stable Diffusion Inpainting...")
-
             if self.mode == 'inference' and self.destination:
                 try:
                     with (self.destination / 'desktop.log').open('a', encoding='utf-8') as stream:
@@ -2320,32 +2225,6 @@ class Window(QMainWindow):
             self.status.setText(tr('status_failed', code=code))
             return
 
-        # Check if clean_plate (RGVI inpainting) is requested after inference finishes
-        if self.mode == 'inference' and self.destination and self.current_opts.get('clean_plate'):
-            alpha_files = list(self.destination.glob('*_alpha.mp4')) + list(self.destination.glob('*_alpha.mov'))
-            if alpha_files:
-                alpha_path = alpha_files[0]
-                out_clean = self.destination / f"{self.current_source.stem}_clean_plate.mp4"
-                rgvi_args = [
-                    '-u', str(ROOT / 'inpaint_rgvi.py'),
-                    '--video', str(self.current_source),
-                    '--mask', str(alpha_path),
-                    '--output', str(out_clean),
-                    '--scale', str(self.current_opts.get('model_scale', 1.0)),
-                ]
-                cp_prompt = self.current_opts.get('clean_plate_prompt', '').strip()
-                if cp_prompt:
-                    rgvi_args.extend(['--prompt', cp_prompt])
-                self.status.setText(tr('status_rgvi_running'))
-                self.log.appendPlainText(tr('log_rgvi_start', src=self.current_source.name, mask=alpha_path.name, dst=out_clean.name))
-                self.launch(rgvi_args, 'rgvi_inpaint')
-                return
-
-        if self.mode == 'rgvi_inpaint' and self.destination:
-            out_clean = self.destination / f"{self.current_source.stem}_clean_plate.mp4"
-            if out_clean.is_file():
-                self.log.appendPlainText(tr('log_rgvi_done', path=out_clean.name))
-
         if self.destination:
             for path in sorted(self.destination.iterdir()):
                 if path.suffix.lower() in VIDEO_EXTS or (path.is_dir() and any(path.glob('*.exr'))):
@@ -2367,7 +2246,6 @@ class Window(QMainWindow):
         self.progress.setValue(1)
         self.status.setText({
             'inference': tr('status_done'),
-            'rgvi_inpaint': tr('status_rgvi_done'),
             'download': tr('status_download_done'),
             'check': tr('status_check_passed'),
         }.get(self.mode, tr('status_done')))
