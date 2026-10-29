@@ -63,6 +63,20 @@ EXCLUDE_EXTENSIONS = {
 }
 
 
+def get_local_app_version() -> str:
+    """Read local APP_VERSION from gui.py without importing GUI dependencies."""
+    gui_file = ROOT / "gui.py"
+    if gui_file.is_file():
+        try:
+            content = gui_file.read_text(encoding="utf-8", errors="ignore")
+            m = re.search(r'APP_VERSION\s*=\s*["\']([^"\']+)["\']', content)
+            if m:
+                return m.group(1)
+        except Exception:
+            pass
+    return "v0.1.1"
+
+
 def get_configured_github_repo() -> str:
     """Retrieve owner/repo from git remote or fallback to DEFAULT_REPO."""
     try:
@@ -264,7 +278,12 @@ def apply_code_update(
             dest_path.parent.mkdir(parents=True, exist_ok=True)
 
             try:
-                shutil.copy2(src_path, dest_path)
+                if rel_path.suffix.lower() in {".bat", ".cmd"}:
+                    raw_b = src_path.read_bytes()
+                    crlf_b = raw_b.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+                    dest_path.write_bytes(crlf_b)
+                else:
+                    shutil.copy2(src_path, dest_path)
                 updated_count += 1
             except Exception as copy_err:
                 print(f"[Warning] Could not update {rel_path}: {copy_err}")
@@ -290,8 +309,8 @@ def main():
 
     args = ap.parse_args()
 
-    # Read current app version
-    from gui import APP_VERSION
+    # Read current app version safely via regex without importing GUI dependencies
+    APP_VERSION = get_local_app_version()
 
     repo = args.repo or get_configured_github_repo()
     print("=" * 65)

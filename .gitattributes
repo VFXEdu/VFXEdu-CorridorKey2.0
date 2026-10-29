@@ -1,0 +1,3 @@
+# Enforce Windows CRLF line endings for all batch files to prevent cmd.exe parser corruption
+*.bat text eol=crlf
+*.cmd text eol=crlf
