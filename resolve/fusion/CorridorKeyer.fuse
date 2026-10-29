@@ -108,8 +108,8 @@ function NotifyChanged(inp, param)
         InStatus:SetAttrs({ INP_Default = "Starting background AI inference..." })
 
         -- Execute background python controller
-        local script_path = [[K:/________________VFXEdu_Script/CorridorKeyer2.0/resolve/fusion/corridorkey_fusion.py]]
-        local py_exe = [[K:/________________VFXEdu_Script/CorridorKeyer2.0/venv/Scripts/python.exe]]
+        local script_path = [[__CORRIDORKEY_ROOT__/resolve/fusion/corridorkey_fusion.py]]
+        local py_exe = [[__CORRIDORKEY_ROOT__/venv/Scripts/python.exe]]
 
         -- Check portable fallback if exists
         local portable_py = [[K:/CorridorKey2.0/CorridorKeyer2.0_Portable_v0.1.3/python_embed/python.exe]]

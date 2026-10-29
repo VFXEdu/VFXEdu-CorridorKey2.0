@@ -108,7 +108,6 @@ def find_corridorkey_root() -> Path | None:
 
     candidates.append(Path(r"K:\CorridorKey2.0\CorridorKeyer2.0_Portable_v0.1.3"))
     candidates.append(Path(r"K:\CorridorKey2.0\CorridorKeyer2.0_Portable_v1.1.1"))
-    candidates.append(Path(r"K:\________________VFXEdu_Script\CorridorKeyer2.0"))
 
     this_dir = Path(__file__).resolve().parent
     candidates.append(this_dir.parent)
@@ -144,7 +143,6 @@ def find_python_executable(ck_root: Path | None) -> Path | None:
 
     fallback_pythons = [
         Path(r"K:\CorridorKey2.0\CorridorKeyer2.0_Portable_v0.1.3\python_embed\python.exe"),
-        Path(r"K:\________________VFXEdu_Script\CorridorKeyer2.0\venv\Scripts\python.exe"),
     ]
     for fpy in fallback_pythons:
         if _has_torch(fpy):

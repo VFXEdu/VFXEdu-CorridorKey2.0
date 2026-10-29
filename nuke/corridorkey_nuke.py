@@ -49,7 +49,6 @@ def find_corridorkey_root() -> Path | None:
     candidates.append(Path(r"K:\CorridorKey2.0\CorridorKeyer2.0_Portable_v1.1.1"))
 
     # 3. Main Development Repository
-    candidates.append(Path(r"K:\________________VFXEdu_Script\CorridorKeyer2.0"))
 
     # 4. Relative to this script (e.g. repo_root/nuke/corridorkey_nuke.py -> repo_root)
     this_dir = Path(__file__).resolve().parent
@@ -92,7 +91,6 @@ def find_python_executable(ck_root: Path | None) -> Path | None:
     # Cross-search known working environments if ck_root's Python is not setup
     fallback_pythons = [
         Path(r"K:\CorridorKey2.0\CorridorKeyer2.0_Portable_v0.1.3\python_embed\python.exe"),
-        Path(r"K:\________________VFXEdu_Script\CorridorKeyer2.0\venv\Scripts\python.exe"),
     ]
     for fpy in fallback_pythons:
         if _has_torch(fpy):

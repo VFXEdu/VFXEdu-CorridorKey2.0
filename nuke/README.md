@@ -39,11 +39,11 @@ The Foundry **Nuke(누크)**와 **CorridorKey 2.0**을 연결하는 전용 기�
 
 * Windows 시스템 환경변수(또는 런처 스크립트)에 추가:
   ```batch
-  set NUKE_PATH=K:\________________VFXEdu_Script\CorridorKeyer2.0\nuke;%NUKE_PATH%
+  set NUKE_PATH=C:\CorridorKey2.0\nuke;%NUKE_PATH%
   ```
 * 또는 사용자의 `~/.nuke/init.py`에 다음 한 줄 추가:
   ```python
-  nuke.pluginAddPath("K:/________________VFXEdu_Script/CorridorKeyer2.0/nuke")
+  nuke.pluginAddPath("C:/CorridorKey2.0/nuke")
   ```
 
 ---

@@ -75,14 +75,14 @@
 ### 3. 🌐 다국어 지원 (Bilingual: English Default & 한국어 전환)
 - **기본 언어는 영어(English)**로 설정되어 있어 글로벌 사용자 환경에서도 바로 사용 가능합니다.
 - 상단 헤더 우측의 언어 선택 드롭다운(`🌐 Language`)을 통해 **English ↔ 한국어**를 프로그램 재시작 없이 실시간으로 즉시 전환할 수 있습니다.
-- 사용자가 선택한 언어 설정은 [gui_config.json](file:///k:/________________VFXEdu_Script/CorridorKeyer2.0/gui_config.json)에 자동 저장되어 다음 실행 시에도 유지됩니다.
+- 사용자가 선택한 언어 설정은 `gui_config.json`에 자동 저장되어 다음 실행 시에도 유지됩니다.
 - 브러시 편집기, 프리뷰 HUD, 라이선스 안내 다이얼로그, 툴팁, 로그 메시지 등 모든 UI 텍스트가 완벽하게 다국어로 지원됩니다.
 
 ---
 
 ### 4. 📜 저작권 및 무료 배포 가이드 (About & License)
 - 상단 헤더의 **[ℹ️ About & License]** 버튼을 통해 라이선스 전문(CC BY-NC-SA 4.0), 파운데이션 모델 서드파티 고지, 저작권 크레딧을 언제든지 열람할 수 있습니다.
-- 상세한 배포 체크리스트 및 가이드는 [DISTRIBUTION_GUIDE.md](file:///k:/________________VFXEdu_Script/CorridorKeyer2.0/DISTRIBUTION_GUIDE.md)를 참고하세요.
+- 상세한 배포 체크리스트 및 가이드는 `DISTRIBUTION_GUIDE.md`를 참고하세요.
 
 ---
 

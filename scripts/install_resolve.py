@@ -122,7 +122,7 @@ def install(repo_root: Path) -> bool:
     fuse_content = fuse_src.read_text(encoding="utf-8")
     norm_root = repo_root.as_posix()
     fuse_content = fuse_content.replace(
-        "K:/________________VFXEdu_Script/CorridorKeyer2.0",
+        "__CORRIDORKEY_ROOT__",
         norm_root
     )
 
