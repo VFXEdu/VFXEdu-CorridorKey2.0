@@ -53,8 +53,7 @@ def get_git_remote_url(remote_name: str = "origin") -> str | None:
 
 def parse_github_repo(remote_url: str) -> tuple[str, str] | None:
     """Extract (owner, repo) from GitHub URL."""
-    # Matches https://github.com/owner/repo.git or git@github.com:owner/repo.git
-    m = re.search(r"github\.com[:/]([^/]+)/([^/.]+)", remote_url)
+    m = re.search(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?$", remote_url)
     if m:
         return m.group(1), m.group(2)
     return None

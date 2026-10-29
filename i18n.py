@@ -343,6 +343,28 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "prompt_rgvi_needed_msg": "The RGVI Clean Plate AI model (~47 MB) is required to remove objects and generate clean plates.\n\nWould you like to download it now?",
         "status_model_downloading": "Downloading model weights: {model}...",
         "status_model_download_done": "Model weights ready.",
+
+        # In-App Auto-Updater
+        "updater_title": "CorridorKey 2.0 Software Update",
+        "updater_btn_check": "🔄 Check for Updates",
+        "updater_checking": "Checking for updates...",
+        "updater_badge_new": "✨ {version} Available",
+        "updater_current_version": "Current Version: {version}",
+        "updater_latest_version": "Latest Version: {version}",
+        "updater_up_to_date_title": "You're Up to Date",
+        "updater_up_to_date_msg": "You are running the latest version of CorridorKey 2.0 ({version}).",
+        "updater_new_available_title": "New Version Available",
+        "updater_new_available_msg": "Version {version} is now available! (Current: {current})",
+        "updater_changelog": "Release Notes & Changelog:",
+        "updater_btn_apply": "⚡ Update Now (Fast Patch)",
+        "updater_btn_github": "🌐 View on GitHub",
+        "updater_btn_close": "Close",
+        "updater_updating": "Updating files...",
+        "updater_success_title": "Update Complete",
+        "updater_success_msg": "{msg}\n\nRestart CorridorKey 2.0 now to apply the updates?",
+        "updater_fail_title": "Update Failed",
+        "updater_fail_msg": "Failed to apply update:\n{err}",
+        "updater_safe_notice": "🛡️ Safe Code-Only Update: AI weights (~5GB) and Python environment are preserved.",
     },
 
     LANG_KO: {
@@ -668,6 +690,28 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "prompt_rgvi_needed_msg": "객체 제거 및 배경 복원(클린 플레이트)을 실행하려면 RGVI 모델(약 47 MB)이 필요합니다.\n\n지금 다운로드하시겠습니까?",
         "status_model_downloading": "AI 모델 가중치 다운로드 중: {model}...",
         "status_model_download_done": "AI 모델 가중치 준비 완료.",
+
+        # In-App Auto-Updater
+        "updater_title": "CorridorKey 2.0 소프트웨어 업데이트",
+        "updater_btn_check": "🔄 업데이트 확인",
+        "updater_checking": "업데이트 확인 중...",
+        "updater_badge_new": "✨ {version} 업데이트 가능",
+        "updater_current_version": "현재 버전: {version}",
+        "updater_latest_version": "최신 버전: {version}",
+        "updater_up_to_date_title": "최신 버전을 사용 중입니다",
+        "updater_up_to_date_msg": "현재 최신 버전의 CorridorKey 2.0 ({version})을 사용하고 있습니다.",
+        "updater_new_available_title": "새로운 업데이트가 있습니다",
+        "updater_new_available_msg": "새로운 버전 {version}을 사용할 수 있습니다! (현재 버전: {current})",
+        "updater_changelog": "릴리즈 노트 및 변경 사항:",
+        "updater_btn_apply": "⚡ 지금 업데이트 (고속 패치)",
+        "updater_btn_github": "🌐 GitHub에서 보기",
+        "updater_btn_close": "닫기",
+        "updater_updating": "파일 업데이트 중...",
+        "updater_success_title": "업데이트 완료",
+        "updater_success_msg": "{msg}\n\n모든 업데이트를 적용하기 위해 지금 CorridorKey 2.0을 다시 시작하시겠습니까?",
+        "updater_fail_title": "업데이트 실패",
+        "updater_fail_msg": "업데이트 적용 실패:\n{err}",
+        "updater_safe_notice": "🛡️ 안전한 코드 전용 패치: AI 모델 가중치(~5GB)와 가상환경은 보존됩니다.",
     }
 }
 

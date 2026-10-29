@@ -78,7 +78,7 @@ import cv2
 import numpy as np
 import torch
 
-from PySide6.QtCore import Qt, QProcess, QProcessEnvironment, QUrl, Signal, QTimer
+from PySide6.QtCore import Qt, QProcess, QProcessEnvironment, QUrl, Signal, QTimer, QThread
 from PySide6.QtGui import (
     QDesktopServices, QImage, QPixmap, QFont, QFontDatabase, QIcon, QColor, QPalette,
     QKeySequence, QShortcut
@@ -404,10 +404,359 @@ class AboutLicenseDialog(QDialog):
 
         layout.addWidget(tabs)
 
+        bottom_bar = QHBoxLayout()
+        btn_updater = QPushButton(tr("updater_btn_check"))
+        btn_updater.setStyleSheet('background:#1d3144;border:1px solid #2b4f73;color:#a3d5ff;font-weight:bold;padding:6px 14px;border-radius:4px;font-size:11px;')
+        btn_updater.clicked.connect(self._open_updater)
+        bottom_bar.addWidget(btn_updater)
+
+        bottom_bar.addStretch(1)
+
         btn_close = QPushButton(tr("about_btn_close"))
-        btn_close.setStyleSheet('background:#21262d;padding:6px 16px;')
+        btn_close.setStyleSheet('background:#21262d;padding:6px 16px;border-radius:4px;')
         btn_close.clicked.connect(self.accept)
-        layout.addWidget(btn_close, 0, Qt.AlignRight)
+        bottom_bar.addWidget(btn_close)
+
+        layout.addLayout(bottom_bar)
+
+    def _open_updater(self):
+        dlg = UpdateDialog(self)
+        dlg.exec()
+
+class UpdateCheckWorker(QThread):
+    """Asynchronous background worker to query GitHub for latest releases."""
+    finished_signal = Signal(dict)
+
+    def __init__(self, current_version: str, parent=None):
+        super().__init__(parent)
+        self.current_version = current_version
+
+    def run(self):
+        try:
+            from scripts.updater import check_for_updates
+            info = check_for_updates(self.current_version)
+        except Exception as e:
+            info = {
+                "update_available": False,
+                "latest_version": self.current_version,
+                "current_version": self.current_version,
+                "release_name": "",
+                "release_notes": "",
+                "release_url": "https://github.com/VFXEdu/VFXEdu-CorridorKey2.0",
+                "zipball_url": "",
+                "error": str(e),
+            }
+        self.finished_signal.emit(info)
+
+
+class UpdateApplyWorker(QThread):
+    """Asynchronous worker to download and apply incremental code updates."""
+    progress_signal = Signal(int, str)
+    finished_signal = Signal(bool, str)
+
+    def __init__(self, zip_url: str | None = None, parent=None):
+        super().__init__(parent)
+        self.zip_url = zip_url
+
+    def run(self):
+        try:
+            from scripts.updater import apply_code_update
+            def on_progress(pct: int, msg: str):
+                self.progress_signal.emit(pct, msg)
+            ok, msg = apply_code_update(zip_url=self.zip_url, progress_callback=on_progress)
+            self.finished_signal.emit(ok, msg)
+        except Exception as e:
+            self.finished_signal.emit(False, str(e))
+
+
+class UpdateDialog(QDialog):
+    """Interactive Auto-Update and Release Notes Dialog."""
+
+    def __init__(self, parent=None, initial_info: dict | None = None):
+        super().__init__(parent)
+        self.setWindowTitle(tr("updater_title"))
+        self.resize(650, 520)
+        self.setMinimumSize(540, 420)
+        self.setStyleSheet("background-color: #0f1218; color: #e2e8f0;")
+
+        self.info = initial_info or {}
+        self.check_worker: UpdateCheckWorker | None = None
+        self.apply_worker: UpdateApplyWorker | None = None
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(12)
+
+        # Header Title
+        title_box = QHBoxLayout()
+        icon_lbl = QLabel("🚀")
+        icon_lbl.setStyleSheet("font-size: 24px;")
+        title_box.addWidget(icon_lbl)
+
+        v_titles = QVBoxLayout()
+        self.lbl_header = QLabel(f"<b style='font-size:16px; color:#38bdf8;'>{APP_NAME}</b>")
+        self.lbl_sub = QLabel(tr("updater_title"))
+        self.lbl_sub.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        v_titles.addWidget(self.lbl_header)
+        v_titles.addWidget(self.lbl_sub)
+        title_box.addLayout(v_titles)
+        title_box.addStretch(1)
+        layout.addLayout(title_box)
+
+        # Version Status Card
+        self.status_card = QFrame()
+        self.status_card.setStyleSheet("""
+            QFrame {
+                background: #171b24;
+                border: 1px solid #28303f;
+                border-radius: 6px;
+                padding: 10px;
+            }
+        """)
+        card_layout = QVBoxLayout(self.status_card)
+        card_layout.setContentsMargins(10, 8, 10, 8)
+        card_layout.setSpacing(6)
+
+        self.lbl_status_badge = QLabel()
+        self.lbl_status_badge.setStyleSheet("font-size: 13px; font-weight: bold;")
+        card_layout.addWidget(self.lbl_status_badge)
+
+        self.lbl_version_detail = QLabel()
+        self.lbl_version_detail.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        card_layout.addWidget(self.lbl_version_detail)
+
+        layout.addWidget(self.status_card)
+
+        # Release Notes / Changelog section
+        self.lbl_notes_title = QLabel(tr("updater_changelog"))
+        self.lbl_notes_title.setStyleSheet("font-weight: bold; font-size: 11px; color: #cbd5e1;")
+        layout.addWidget(self.lbl_notes_title)
+
+        self.text_notes = QPlainTextEdit()
+        self.text_notes.setReadOnly(True)
+        self.text_notes.setStyleSheet("""
+            QPlainTextEdit {
+                background: #141720;
+                border: 1px solid #232938;
+                border-radius: 4px;
+                color: #e2e8f0;
+                font-family: 'Consolas', 'Segoe UI', monospace;
+                font-size: 11px;
+                line-height: 140%;
+                padding: 8px;
+            }
+        """)
+        layout.addWidget(self.text_notes, 1)
+
+        # Safe update notice
+        self.lbl_safe = QLabel(tr("updater_safe_notice"))
+        self.lbl_safe.setStyleSheet("color: #71e0be; font-size: 10px; font-weight: 600;")
+        self.lbl_safe.setWordWrap(True)
+        layout.addWidget(self.lbl_safe)
+
+        # Progress Bar & Status Text (Hidden initially)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setTextVisible(True)
+        self.progress_bar.setStyleSheet("""
+            QProgressBar {
+                background: #1a1e29;
+                border: 1px solid #2f384a;
+                border-radius: 4px;
+                height: 18px;
+                text-align: center;
+                color: #ffffff;
+                font-size: 10px;
+                font-weight: bold;
+            }
+            QProgressBar::chunk {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0284c7, stop:1 #38bdf8);
+                border-radius: 3px;
+            }
+        """)
+        self.progress_bar.setVisible(False)
+        layout.addWidget(self.progress_bar)
+
+        self.lbl_prog_status = QLabel("")
+        self.lbl_prog_status.setStyleSheet("color: #38bdf8; font-size: 11px;")
+        self.lbl_prog_status.setVisible(False)
+        layout.addWidget(self.lbl_prog_status)
+
+        # Button row
+        btn_box = QHBoxLayout()
+        btn_box.setSpacing(10)
+
+        self.btn_github = QPushButton(tr("updater_btn_github"))
+        self.btn_github.setStyleSheet("""
+            QPushButton {
+                background: #1e2430;
+                border: 1px solid #333d52;
+                border-radius: 4px;
+                color: #cbd5e1;
+                font-size: 11px;
+                font-weight: 600;
+                padding: 6px 14px;
+            }
+            QPushButton:hover {
+                background: #2a3344;
+                color: #ffffff;
+            }
+        """)
+        self.btn_github.clicked.connect(self._open_github)
+        btn_box.addWidget(self.btn_github)
+
+        btn_box.addStretch(1)
+
+        self.btn_check_again = QPushButton(tr("updater_btn_check"))
+        self.btn_check_again.setStyleSheet("""
+            QPushButton {
+                background: #1e2430;
+                border: 1px solid #333d52;
+                border-radius: 4px;
+                color: #cbd5e1;
+                font-size: 11px;
+                font-weight: 600;
+                padding: 6px 14px;
+            }
+            QPushButton:hover {
+                background: #2a3344;
+                color: #ffffff;
+            }
+        """)
+        self.btn_check_again.clicked.connect(self._start_check)
+        btn_box.addWidget(self.btn_check_again)
+
+        self.btn_apply = QPushButton(tr("updater_btn_apply"))
+        self.btn_apply.setStyleSheet("""
+            QPushButton {
+                background: #0284c7;
+                border: 1px solid #38bdf8;
+                border-radius: 4px;
+                color: #ffffff;
+                font-size: 11px;
+                font-weight: bold;
+                padding: 6px 16px;
+            }
+            QPushButton:hover {
+                background: #0369a1;
+            }
+            QPushButton:disabled {
+                background: #1e293b;
+                border-color: #334155;
+                color: #64748b;
+            }
+        """)
+        self.btn_apply.clicked.connect(self._start_apply)
+        btn_box.addWidget(self.btn_apply)
+
+        self.btn_close = QPushButton(tr("updater_btn_close"))
+        self.btn_close.setStyleSheet("""
+            QPushButton {
+                background: #1e2430;
+                border: 1px solid #333d52;
+                border-radius: 4px;
+                color: #cbd5e1;
+                font-size: 11px;
+                padding: 6px 14px;
+            }
+            QPushButton:hover {
+                background: #2a3344;
+                color: #ffffff;
+            }
+        """)
+        self.btn_close.clicked.connect(self.close)
+        btn_box.addWidget(self.btn_close)
+
+        layout.addLayout(btn_box)
+
+        if self.info:
+            self._display_info(self.info)
+        else:
+            self._start_check()
+
+    def _start_check(self):
+        self.lbl_status_badge.setText(f"⏳ {tr('updater_checking')}")
+        self.lbl_status_badge.setStyleSheet("font-size:13px; font-weight:bold; color:#38bdf8;")
+        self.lbl_version_detail.setText(tr("updater_current_version", version=APP_VERSION))
+        self.btn_apply.setEnabled(False)
+        self.btn_check_again.setEnabled(False)
+        self.text_notes.setPlainText("")
+
+        self.check_worker = UpdateCheckWorker(APP_VERSION, self)
+        self.check_worker.finished_signal.connect(self._on_check_finished)
+        self.check_worker.start()
+
+    def _on_check_finished(self, info: dict):
+        self.info = info
+        self.btn_check_again.setEnabled(True)
+        self._display_info(info)
+
+    def _display_info(self, info: dict):
+        if info.get("error"):
+            self.lbl_status_badge.setText(f"⚠️ {info['error']}")
+            self.lbl_status_badge.setStyleSheet("font-size:12px; font-weight:bold; color:#f87171;")
+            self.lbl_version_detail.setText(tr("updater_current_version", version=APP_VERSION))
+            self.btn_apply.setEnabled(False)
+            self.text_notes.setPlainText(f"Check status:\n{info['error']}")
+        elif info.get("update_available"):
+            latest = info.get("latest_version", "")
+            self.lbl_status_badge.setText(f"🎉 {tr('updater_new_available_title')} ({latest})")
+            self.lbl_status_badge.setStyleSheet("font-size:13px; font-weight:bold; color:#4ade80;")
+            self.lbl_version_detail.setText(f"{tr('updater_current_version', version=APP_VERSION)}  ➜  {tr('updater_latest_version', version=latest)}")
+            self.btn_apply.setEnabled(True)
+            body = info.get("release_notes") or info.get("release_name") or "New update available."
+            self.text_notes.setPlainText(body)
+        else:
+            self.lbl_status_badge.setText(f"✅ {tr('updater_up_to_date_title')}")
+            self.lbl_status_badge.setStyleSheet("font-size:13px; font-weight:bold; color:#38bdf8;")
+            self.lbl_version_detail.setText(tr("updater_up_to_date_msg", version=APP_VERSION))
+            self.btn_apply.setEnabled(False)
+            self.text_notes.setPlainText(info.get("release_notes") or f"Current version {APP_VERSION} is the latest release.")
+
+    def _start_apply(self):
+        zip_url = self.info.get("zipball_url")
+        self.btn_apply.setEnabled(False)
+        self.btn_check_again.setEnabled(False)
+        self.btn_close.setEnabled(False)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setVisible(True)
+        self.lbl_prog_status.setVisible(True)
+        self.lbl_prog_status.setText(tr("updater_updating"))
+
+        self.apply_worker = UpdateApplyWorker(zip_url, self)
+        self.apply_worker.progress_signal.connect(self._on_apply_progress)
+        self.apply_worker.finished_signal.connect(self._on_apply_finished)
+        self.apply_worker.start()
+
+    def _on_apply_progress(self, pct: int, msg: str):
+        self.progress_bar.setValue(pct)
+        self.lbl_prog_status.setText(msg)
+
+    def _on_apply_finished(self, ok: bool, msg: str):
+        self.btn_close.setEnabled(True)
+        self.btn_check_again.setEnabled(True)
+        if ok:
+            self.progress_bar.setValue(100)
+            self.lbl_prog_status.setText(msg)
+            ret = QMessageBox.question(
+                self,
+                tr("updater_success_title"),
+                tr("updater_success_msg", msg=msg),
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes,
+            )
+            if ret == QMessageBox.Yes:
+                self.accept()
+                import sys
+                QProcess.startDetached(sys.executable, sys.argv)
+                QApplication.quit()
+        else:
+            QMessageBox.critical(self, tr("updater_fail_title"), tr("updater_fail_msg", err=msg))
+            self.btn_apply.setEnabled(True)
+
+    def _open_github(self):
+        url = self.info.get("release_url") or "https://github.com/VFXEdu/VFXEdu-CorridorKey2.0"
+        QDesktopServices.openUrl(QUrl(url))
 
 
 class Preview(QGroupBox):
@@ -606,6 +955,11 @@ class Window(QMainWindow):
         # Check required models on startup
         QTimer.singleShot(700, self._check_models_on_startup)
 
+        # Background update check (non-blocking)
+        self._last_update_info = None
+        self._update_worker = None
+        QTimer.singleShot(1500, self._check_updates_background)
+
     def _check_models_on_startup(self):
         """Prompt to download required models on initial launch if missing."""
         if not are_required_models_installed(ROOT):
@@ -716,6 +1070,28 @@ class Window(QMainWindow):
         """)
         self.lbl_version.setToolTip(f"{APP_NAME} Workbench Desktop {APP_VERSION}")
         h_layout.addWidget(self.lbl_version)
+
+        # In-App Update Badge Button (hidden until an update is detected)
+        self.btn_update_badge = QPushButton()
+        self.btn_update_badge.setStyleSheet("""
+            QPushButton {
+                background: #0284c7;
+                color: #ffffff;
+                font-size: 10px;
+                font-weight: 800;
+                border: 1px solid #38bdf8;
+                border-radius: 3px;
+                padding: 2px 8px;
+                margin-left: 4px;
+            }
+            QPushButton:hover {
+                background: #0369a1;
+                border-color: #7dd3fc;
+            }
+        """)
+        self.btn_update_badge.setVisible(False)
+        self.btn_update_badge.clicked.connect(self._on_update_badge_clicked)
+        h_layout.addWidget(self.btn_update_badge)
 
         # Top-Left Live GPU Status Badge
         self.badge_gpu = QLabel("⚡ GPU: -- / -- GB")
@@ -2494,6 +2870,27 @@ class Window(QMainWindow):
     def show_about_dialog(self):
         dlg = AboutLicenseDialog(self)
         dlg.exec()
+
+    def _check_updates_background(self):
+        """Asynchronously check for updates without blocking UI."""
+        self._update_worker = UpdateCheckWorker(APP_VERSION, self)
+        self._update_worker.finished_signal.connect(self._on_background_update_checked)
+        self._update_worker.start()
+
+    def _on_background_update_checked(self, info: dict):
+        self._last_update_info = info
+        if info.get("update_available"):
+            latest = info.get("latest_version", "")
+            self.btn_update_badge.setText(f"✨ {latest}")
+            self.btn_update_badge.setToolTip(
+                f"{tr('updater_new_available_title')}: {latest}\n{tr('updater_btn_apply')}"
+            )
+            self.btn_update_badge.setVisible(True)
+
+    def _on_update_badge_clicked(self):
+        dlg = UpdateDialog(self, initial_info=self._last_update_info)
+        dlg.exec()
+
 
     # =========================================================================
     # Brush Mask Editor Integration
