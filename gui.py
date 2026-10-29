@@ -69,7 +69,7 @@ import uuid
 # Ensure local bin (ffmpeg.exe) is in PATH
 _ROOT = Path(__file__).resolve().parent
 APP_NAME = "VFXEdu CorridorKey 2.0"
-APP_VERSION = "v0.1.1"
+APP_VERSION = "v0.1.3"
 _BIN = _ROOT / "bin"
 if _BIN.is_dir() and str(_BIN) not in os.environ.get("PATH", ""):
     os.environ["PATH"] = str(_BIN) + os.pathsep + os.environ.get("PATH", "")

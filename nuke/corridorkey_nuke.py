@@ -45,7 +45,7 @@ def find_corridorkey_root() -> Path | None:
         candidates.append(Path(env_root))
 
     # 2. Known portable installations with weights
-    candidates.append(Path(r"K:\CorridorKey2.0\CorridorKeyer2.0_Portable_v0.1.1"))
+    candidates.append(Path(r"K:\CorridorKey2.0\CorridorKeyer2.0_Portable_v0.1.3"))
     candidates.append(Path(r"K:\CorridorKey2.0\CorridorKeyer2.0_Portable_v1.1.1"))
 
     # 3. Main Development Repository
@@ -91,7 +91,7 @@ def find_python_executable(ck_root: Path | None) -> Path | None:
 
     # Cross-search known working environments if ck_root's Python is not setup
     fallback_pythons = [
-        Path(r"K:\CorridorKey2.0\CorridorKeyer2.0_Portable_v0.1.1\python_embed\python.exe"),
+        Path(r"K:\CorridorKey2.0\CorridorKeyer2.0_Portable_v0.1.3\python_embed\python.exe"),
         Path(r"K:\________________VFXEdu_Script\CorridorKeyer2.0\venv\Scripts\python.exe"),
     ]
     for fpy in fallback_pythons:

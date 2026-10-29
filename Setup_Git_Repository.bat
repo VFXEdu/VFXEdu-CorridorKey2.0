@@ -7,7 +7,7 @@ echo  VFXEdu CorridorKey 2.0 - Git & GitHub Repository Setup Wizard
 echo =====================================================================
 echo.
 echo 이 스크립트는 본 프로젝트를 사용자의 GitHub 레포지토리에 연결하고,
-echo 버전 태그(v0.1.1)를 생성하여 푸시할 수 있도록 도와줍니다.
+echo 버전 태그(v0.1.3)를 생성하여 푸시할 수 있도록 도와줍니다.
 echo.
 
 set /p "GITHUB_URL=내 GitHub 레포지토리 URL (예: https://github.com/사용자명/레포명.git): "
@@ -23,12 +23,12 @@ git remote -v
 echo.
 echo [*] 변경 사항 및 새 파일 스테이징 중...
 git add .
-git commit -m "feat: VFXEdu CorridorKey 2.0 v0.1.1 Desktop Suite Release"
+git commit -m "feat: VFXEdu CorridorKey 2.0 v0.1.3 Desktop Suite Release"
 
 echo.
-echo [*] 버전 태그 v0.1.1 생성 중...
-git tag -d v0.1.1 2>nul
-git tag -a v0.1.1 -m "VFXEdu CorridorKey 2.0 v0.1.1"
+echo [*] 버전 태그 v0.1.3 생성 중...
+git tag -d v0.1.3 2>nul
+git tag -a v0.1.3 -m "VFXEdu CorridorKey 2.0 v0.1.3"
 
 echo.
 echo =====================================================================

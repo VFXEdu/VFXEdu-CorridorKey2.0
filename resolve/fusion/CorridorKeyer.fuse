@@ -112,12 +112,12 @@ function NotifyChanged(inp, param)
         local py_exe = [[K:/________________VFXEdu_Script/CorridorKeyer2.0/venv/Scripts/python.exe]]
 
         -- Check portable fallback if exists
-        local portable_py = [[K:/CorridorKey2.0/CorridorKeyer2.0_Portable_v0.1.1/python_embed/python.exe]]
+        local portable_py = [[K:/CorridorKey2.0/CorridorKeyer2.0_Portable_v0.1.3/python_embed/python.exe]]
         local f = io.open(portable_py, "r")
         if f then
             f:close()
             py_exe = portable_py
-            script_path = [[K:/CorridorKey2.0/CorridorKeyer2.0_Portable_v0.1.1/resolve/fusion/corridorkey_fusion.py]]
+            script_path = [[K:/CorridorKey2.0/CorridorKeyer2.0_Portable_v0.1.3/resolve/fusion/corridorkey_fusion.py]]
         end
 
         local cmd = string.format('start /b "" "%s" "%s" --node "%s" --despill %.2f --fmt %d --low-vram %d',

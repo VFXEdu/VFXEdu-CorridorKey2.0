@@ -68,7 +68,7 @@ def find_corridorkey_root() -> Path:
         return Path(env_root).resolve()
 
     candidates = [
-        Path(r"K:\CorridorKey2.0\CorridorKeyer2.0_Portable_v0.1.1"),
+        Path(r"K:\CorridorKey2.0\CorridorKeyer2.0_Portable_v0.1.3"),
         Path(r"K:\CorridorKey2.0\CorridorKeyer2.0_Portable_v1.1.1"),
         Path(r"K:\________________VFXEdu_Script\CorridorKeyer2.0"),
         Path(__file__).resolve().parent.parent.parent,
@@ -89,7 +89,7 @@ def find_python_executable(ck_root: Path) -> Path | None:
         return embed_py.resolve()
 
     fallbacks = [
-        Path(r"K:\CorridorKey2.0\CorridorKeyer2.0_Portable_v0.1.1\python_embed\python.exe"),
+        Path(r"K:\CorridorKey2.0\CorridorKeyer2.0_Portable_v0.1.3\python_embed\python.exe"),
         Path(r"K:\________________VFXEdu_Script\CorridorKeyer2.0\venv\Scripts\python.exe"),
     ]
     for f in fallbacks:
