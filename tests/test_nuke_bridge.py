@@ -7,7 +7,10 @@ import sys
 import unittest
 
 # Add nuke folder to sys.path
-NUKE_DIR = Path(__file__).resolve().parent / "nuke"
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+NUKE_DIR = ROOT / "nuke"
 if str(NUKE_DIR) not in sys.path:
     sys.path.insert(0, str(NUKE_DIR))
 

@@ -9,6 +9,10 @@ import time
 from pathlib import Path
 import unittest
 
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 import cv2
 import json
 import numpy as np
@@ -448,7 +452,7 @@ class DesktopTests(unittest.TestCase):
         # require_ffmpeg should not raise
         require_ffmpeg("ffmpeg")
 
-        root = Path(__file__).resolve().parent
+        root = ROOT
         bin_ffmpeg = root / "bin" / "ffmpeg.exe"
         self.assertTrue(bin_ffmpeg.is_file(), "bin/ffmpeg.exe must exist in project")
 

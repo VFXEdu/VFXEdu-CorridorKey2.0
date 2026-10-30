@@ -5,7 +5,10 @@ from pathlib import Path
 import sys
 import unittest
 
-RESOLVE_DIR = Path(__file__).resolve().parent / "resolve"
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+RESOLVE_DIR = ROOT / "resolve"
 if str(RESOLVE_DIR) not in sys.path:
     sys.path.insert(0, str(RESOLVE_DIR))
 

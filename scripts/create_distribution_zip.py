@@ -55,6 +55,7 @@ EXCLUDE_DIRS = {
     ".idea",
     ".vscode",
     "dist",
+    "tests",
 }
 
 # Explicit essential empty folders that must exist (with .gitkeep)
