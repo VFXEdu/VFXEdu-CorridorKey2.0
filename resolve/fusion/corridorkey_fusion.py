@@ -71,6 +71,18 @@ def update_status(tool, text: str):
         pass
 
 
+def _has_torch(py_path: Path | None) -> bool:
+    """Verify whether a given Python environment actually has PyTorch installed."""
+    if not py_path or not py_path.is_file():
+        return False
+    parent = py_path.parent
+    site_dirs = [
+        parent / "Lib" / "site-packages" / "torch" / "__init__.py",
+        parent.parent / "Lib" / "site-packages" / "torch" / "__init__.py",
+    ]
+    return any(d.is_file() for d in site_dirs)
+
+
 def find_corridorkey_root() -> Path:
     env_root = os.environ.get("CORRIDORKEY_ROOT")
     if env_root and Path(env_root).is_dir():
@@ -79,6 +91,7 @@ def find_corridorkey_root() -> Path:
     candidates = [
         Path(__file__).resolve().parent.parent.parent,
         Path(r"K:\Pateron\CorridorKeyer2.0_Portable"),
+        Path(r"K:\________________VFXEdu_Script\CorridorKeyer2.0"),
         Path(r"K:\CorridorKey2.0\CorridorKeyer2.0_Portable_v0.1.3"),
     ]
     for p in candidates:
@@ -88,13 +101,21 @@ def find_corridorkey_root() -> Path:
 
 
 def find_python_executable(ck_root: Path) -> Path:
-    embed_py = ck_root / "python_embed" / "python.exe"
-    if embed_py.is_file():
-        return embed_py.resolve()
+    # 1. First priority: look for Python environments that actually have PyTorch installed
+    verified_candidates = [
+        ck_root / "venv" / "Scripts" / "python.exe",
+        ck_root / "python_embed" / "python.exe",
+        Path(r"K:\Pateron\CorridorKeyer2.0_Portable\python_embed\python.exe"),
+        Path(r"K:\________________VFXEdu_Script\CorridorKeyer2.0\venv\Scripts\python.exe"),
+    ]
+    for p in verified_candidates:
+        if _has_torch(p):
+            return p.resolve()
 
-    venv_py = ck_root / "venv" / "Scripts" / "python.exe"
-    if venv_py.is_file():
-        return venv_py.resolve()
+    # 2. Secondary fallback: any existing python executable
+    for p in verified_candidates:
+        if p.is_file():
+            return p.resolve()
 
     return Path(sys.executable).resolve()
 

@@ -140,18 +140,37 @@ function NotifyChanged(inp, param, time)
 
             local script_path = root .. "/resolve/fusion/corridorkey_fusion.py"
 
-            -- Try python_embed first, then venv, then system python
+            -- Check Python environments that actually have PyTorch
             local py_exe = nil
             local py_candidates = {
-                root .. "/python_embed/python.exe",
-                root .. "/venv/Scripts/python.exe",
+                { exe = root .. "/venv/Scripts/python.exe", torch = root .. "/venv/Lib/site-packages/torch/__init__.py" },
+                { exe = root .. "/python_embed/python.exe", torch = root .. "/python_embed/Lib/site-packages/torch/__init__.py" },
+                { exe = [[K:/Pateron/CorridorKeyer2.0_Portable/python_embed/python.exe]], torch = [[K:/Pateron/CorridorKeyer2.0_Portable/python_embed/Lib/site-packages/torch/__init__.py]] },
+                { exe = [[K:/________________VFXEdu_Script/CorridorKeyer2.0/venv/Scripts/python.exe]], torch = [[K:/________________VFXEdu_Script/CorridorKeyer2.0/venv/Lib/site-packages/torch/__init__.py]] },
             }
-            for _, py in ipairs(py_candidates) do
-                local f_py = io.open(py, "r")
-                if f_py then
-                    f_py:close()
-                    py_exe = py
-                    break
+
+            for _, cand in ipairs(py_candidates) do
+                local f_torch = io.open(cand.torch, "r")
+                if f_torch then
+                    f_torch:close()
+                    local f_exe = io.open(cand.exe, "r")
+                    if f_exe then
+                        f_exe:close()
+                        py_exe = cand.exe
+                        break
+                    end
+                end
+            end
+
+            -- Secondary fallback if torch check failed
+            if not py_exe then
+                for _, cand in ipairs(py_candidates) do
+                    local f_exe = io.open(cand.exe, "r")
+                    if f_exe then
+                        f_exe:close()
+                        py_exe = cand.exe
+                        break
+                    end
                 end
             end
             if not py_exe then
