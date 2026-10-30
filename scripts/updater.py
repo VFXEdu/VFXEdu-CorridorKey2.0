@@ -288,10 +288,18 @@ def apply_code_update(
             except Exception as copy_err:
                 print(f"[Warning] Could not update {rel_path}: {copy_err}")
 
-        # Auto-refresh DaVinci Resolve Fuse if integration exists
+        # Auto-refresh DaVinci Resolve Fuse and Nuke if integrations exist
         try:
             from scripts.install_resolve import install as install_resolve
             install_resolve(target_dir)
+        except Exception:
+            pass
+
+        try:
+            from scripts.install_nuke import get_nuke_dir, install as install_nuke
+            nuke_init = get_nuke_dir() / "init.py"
+            if nuke_init.is_file():
+                install_nuke(target_dir)
         except Exception:
             pass
 
