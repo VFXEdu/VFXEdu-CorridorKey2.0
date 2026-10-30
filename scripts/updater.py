@@ -150,6 +150,7 @@ def check_for_updates(current_version: str, repo: str | None = None, timeout: fl
         "error": None,
     }
 
+    api_success = False
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
@@ -166,29 +167,67 @@ def check_for_updates(current_version: str, repo: str | None = None, timeout: fl
 
             if is_newer_version(latest_tag, current_version):
                 result["update_available"] = True
+            api_success = True
 
     except urllib.error.HTTPError as e:
-        if e.code == 404:
-            # No releases published yet on this repo; check raw master gui.py
-            raw_url = f"https://raw.githubusercontent.com/{repo}/master/gui.py"
-            try:
-                raw_req = urllib.request.Request(raw_url, headers={"User-Agent": "VFXEdu-CorridorKeyer"})
-                with urllib.request.urlopen(raw_req, timeout=timeout) as rresp:
-                    content = rresp.read().decode("utf-8")
-                    m = re.search(r'APP_VERSION\s*=\s*["\']([^"\']+)["\']', content)
-                    if m:
-                        latest_raw = m.group(1)
-                        result["latest_version"] = latest_raw
-                        result["zipball_url"] = f"https://github.com/{repo}/archive/refs/heads/master.zip"
-                        if is_newer_version(latest_raw, current_version):
-                            result["update_available"] = True
-                            result["release_notes"] = f"New master build ({latest_raw}) available."
-            except Exception as raw_e:
-                result["error"] = f"No releases found and raw check failed: {raw_e}"
-        else:
-            result["error"] = f"GitHub API HTTP error {e.code}: {e.reason}"
+        # 403 (Rate limit exceeded), 404 (No releases), or other API issues
+        result["error"] = f"GitHub API HTTP error {e.code}: {e.reason}"
     except Exception as e:
         result["error"] = f"Connection error: {e}"
+
+    if api_success:
+        return result
+
+    # -------------------------------------------------------------------------
+    # Fallback 1: Web Redirect Check (Bypasses GitHub API 60 req/hr rate limit)
+    # -------------------------------------------------------------------------
+    try:
+        web_req = urllib.request.Request(
+            f"https://github.com/{repo}/releases/latest",
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
+        )
+        with urllib.request.urlopen(web_req, timeout=timeout) as web_resp:
+            final_url = web_resp.geturl()
+            m = re.search(r"/releases/tag/([^/?#]+)", final_url)
+            if m:
+                latest_tag = m.group(1).strip()
+                result["latest_version"] = latest_tag
+                result["release_name"] = f"Release {latest_tag}"
+                result["release_url"] = final_url
+                result["zipball_url"] = f"https://github.com/{repo}/archive/refs/tags/{latest_tag}.zip"
+                result["release_notes"] = f"Latest verified release ({latest_tag}) via GitHub."
+                result["error"] = None
+                if is_newer_version(latest_tag, current_version):
+                    result["update_available"] = True
+                return result
+    except Exception:
+        pass
+
+    # -------------------------------------------------------------------------
+    # Fallback 2: Raw master gui.py check (Never rate-limited)
+    # -------------------------------------------------------------------------
+    try:
+        raw_url = f"https://raw.githubusercontent.com/{repo}/master/gui.py"
+        raw_req = urllib.request.Request(
+            raw_url,
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
+        )
+        with urllib.request.urlopen(raw_req, timeout=timeout) as rresp:
+            content = rresp.read().decode("utf-8")
+            m = re.search(r'APP_VERSION\s*=\s*["\']([^"\']+)["\']', content)
+            if m:
+                latest_raw = m.group(1).strip()
+                result["latest_version"] = latest_raw
+                result["release_name"] = f"Latest Build ({latest_raw})"
+                result["release_url"] = f"https://github.com/{repo}/commits/master"
+                result["zipball_url"] = f"https://github.com/{repo}/archive/refs/heads/master.zip"
+                result["release_notes"] = f"Direct build from GitHub master branch ({latest_raw})."
+                result["error"] = None
+                if is_newer_version(latest_raw, current_version):
+                    result["update_available"] = True
+                return result
+    except Exception as raw_e:
+        result["error"] = f"All update check methods failed: {raw_e}"
 
     return result
 
