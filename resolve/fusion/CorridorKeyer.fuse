@@ -36,10 +36,9 @@ function Create()
     -- Inspector Controls
     self:BeginControlNest("CorridorKeyer 2.0 Parameters", "CKParams", true, {})
 
-    InHeader = self:AddInput("⚡ VFXEdu CorridorKey 2.0", "HeaderLbl", {
+    InHeader = self:AddInput("VFXEdu CorridorKey 2.0 AI Keyer", "HeaderLbl", {
         LINKID_DataType = "Text",
         INPID_InputControl = "LabelControl",
-        LBLC_DropDownButton = false,
         INP_External = false,
         INP_Passive = true,
     })
@@ -71,25 +70,27 @@ function Create()
         INP_Integer = true,
     })
 
-    InStatus = self:AddInput("Status", "Status", {
+    InStatus = self:AddInput("Status: Ready to Render", "StatusLbl", {
         LINKID_DataType = "Text",
         INPID_InputControl = "LabelControl",
-        INP_Default = "Ready to Render",
-        LBLC_DropDownButton = false,
         INP_External = false,
         INP_Passive = true,
     })
 
-    InRender = self:AddInput("🚀 Render CorridorKey Matte", "RenderButton", {
+    InRender = self:AddInput("⚡ Run CorridorKey AI", "RenderButton", {
         LINKID_DataType = "Number",
         INPID_InputControl = "ButtonControl",
+        INP_Integer = true,
+        INP_Default = 0,
         INP_DoNotifyChanged = true,
         INP_External = false,
     })
 
-    InOpenFolder = self:AddInput("📁 Open Output Folder", "OpenFolderButton", {
+    InOpenFolder = self:AddInput("📂 Open Render Folder", "OpenFolderButton", {
         LINKID_DataType = "Number",
         INPID_InputControl = "ButtonControl",
+        INP_Integer = true,
+        INP_Default = 0,
         INP_DoNotifyChanged = true,
         INP_External = false,
     })
@@ -97,36 +98,72 @@ function Create()
     self:EndControlNest()
 end
 
-function NotifyChanged(inp, param)
-    if inp == InRender and param.Value == 1 then
-        local node_name = self.Name
-        local despill = InDespill:GetValue(self.Comp.CurrentTime).Value
-        local fmt = InFormat:GetValue(self.Comp.CurrentTime).Value
-        local low_vram = InLowVRAM:GetValue(self.Comp.CurrentTime).Value
+function NotifyChanged(inp, param, time)
+    if param and param.Value == 1 then
+        if inp == InRender then
+            local node_name = self.Name
+            local despill = InDespill:GetValue(self.Comp.CurrentTime).Value
+            local fmt = InFormat:GetValue(self.Comp.CurrentTime).Value
+            local low_vram = InLowVRAM:GetValue(self.Comp.CurrentTime).Value
 
-        -- Update UI status in Inspector
-        InStatus:SetAttrs({ INP_Default = "Starting background AI inference..." })
+            -- Resolve root directory
+            local root = [[__CORRIDORKEY_ROOT__]]
+            local test_f = io.open(root .. "/resolve/fusion/corridorkey_fusion.py", "r")
+            if test_f then
+                test_f:close()
+            else
+                local candidates = {
+                    os.getenv("CORRIDORKEY_ROOT") or "",
+                    [[K:/Pateron/CorridorKeyer2.0_Portable]],
+                    [[K:/________________VFXEdu_Script/CorridorKeyer2.0]],
+                    [[C:/CorridorKey2.0]],
+                }
+                for _, c in ipairs(candidates) do
+                    if c and c ~= "" then
+                        local f = io.open(c .. "/resolve/fusion/corridorkey_fusion.py", "r")
+                        if f then
+                            f:close()
+                            root = c
+                            break
+                        end
+                    end
+                end
+            end
 
-        -- Execute background python controller
-        local script_path = [[__CORRIDORKEY_ROOT__/resolve/fusion/corridorkey_fusion.py]]
-        local py_exe = [[__CORRIDORKEY_ROOT__/venv/Scripts/python.exe]]
+            local script_path = root .. "/resolve/fusion/corridorkey_fusion.py"
 
-        -- Check portable fallback if exists
-        local portable_py = [[K:/CorridorKey2.0/CorridorKeyer2.0_Portable_v0.1.3/python_embed/python.exe]]
-        local f = io.open(portable_py, "r")
-        if f then
-            f:close()
-            py_exe = portable_py
-            script_path = [[K:/CorridorKey2.0/CorridorKeyer2.0_Portable_v0.1.3/resolve/fusion/corridorkey_fusion.py]]
+            -- Try python_embed first, then venv, then system python
+            local py_exe = nil
+            local py_candidates = {
+                root .. "/python_embed/python.exe",
+                root .. "/venv/Scripts/python.exe",
+            }
+            for _, py in ipairs(py_candidates) do
+                local f_py = io.open(py, "r")
+                if f_py then
+                    f_py:close()
+                    py_exe = py
+                    break
+                end
+            end
+            if not py_exe then
+                py_exe = "python"
+            end
+
+            local cmd = string.format('start /b "" "%s" "%s" --node "%s" --despill %.2f --fmt %d --low-vram %d',
+                py_exe, script_path, node_name, despill, fmt, low_vram)
+            os.execute(cmd)
+
+        elseif inp == InOpenFolder then
+            local out_dir = [[C:/CorridorKey_Renders]]
+            local f = io.open(out_dir, "r")
+            if not f then
+                out_dir = [[K:/CorridorKey_Renders]]
+            else
+                f:close()
+            end
+            os.execute(string.format('start "" "%s"', out_dir))
         end
-
-        local cmd = string.format('start /b "" "%s" "%s" --node "%s" --despill %.2f --fmt %d --low-vram %d',
-            py_exe, script_path, node_name, despill, fmt, low_vram)
-        os.execute(cmd)
-
-    elseif inp == InOpenFolder and param.Value == 1 then
-        local out_dir = [[K:/CorridorKey_Renders]]
-        os.execute(string.format('start "" "%s"', out_dir))
     end
 end
 
