@@ -338,16 +338,51 @@ def main():
     try:
         loader = comp.AddTool("Loader")
         if loader and rendered_file:
-            loader.Clip = rendered_file
+            resolved_path = str(Path(rendered_file).resolve())
+            loader.Clip[comp.CurrentTime] = resolved_path
             loader.SetAttrs({"TOOLS_Name": f"{clip_stem}_Keyed"})
+
+            # Synchronize frame timing with composition and MediaIn
+            gin = 0.0
+            gout = 120.0
+            try:
+                gin = comp.GetAttrs("COMPN_GlobalStart") or 0.0
+                gout = comp.GetAttrs("COMPN_GlobalEnd") or 120.0
+                in_conn = tool.Input.GetConnectedOutput()
+                if in_conn:
+                    src_tool = in_conn.GetTool()
+                    if src_tool and hasattr(src_tool, "GlobalIn"):
+                        gin = src_tool.GlobalIn[comp.CurrentTime]
+                        gout = src_tool.GlobalOut[comp.CurrentTime]
+            except Exception:
+                pass
+
+            loader.GlobalIn[comp.CurrentTime] = gin
+            loader.GlobalOut[comp.CurrentTime] = gout
+            loader.ClipTimeStart[comp.CurrentTime] = 0
+            loader.ClipTimeEnd[comp.CurrentTime] = max(0, gout - gin)
+            loader.HoldFirstFrame[comp.CurrentTime] = 0
+            loader.HoldLastFrame[comp.CurrentTime] = 0
 
             # Position Loader neatly in Flow graph
             try:
                 flow = comp.CurrentFrame.FlowView
                 x, y = flow.GetPos(tool)
-                flow.SetPos(loader, x + 100, y + 50)
+                flow.SetPos(loader, x, y + 2.0)
             except Exception:
                 pass
+
+            # Auto-connect Loader to MediaOut1 if CorridorKeyer was feeding it
+            try:
+                out_conn = tool.Output.GetConnectedInputs()
+                if out_conn:
+                    for target_inp in out_conn:
+                        target_tool = target_inp.GetTool()
+                        if target_tool and target_tool.ID == "MediaOut":
+                            target_inp.ConnectTo(loader.Output)
+                            print("[CorridorKey Fusion] Automatically connected Keyed Loader -> MediaOut1!")
+            except Exception as wire_err:
+                print(f"[Note] Auto-wire: {wire_err}")
 
         update_status(tool, "✨ Render Complete!")
         print(f"\n[SUCCESS] Successfully keyed and added Loader into Fusion: {rendered_file}")
@@ -356,23 +391,33 @@ def main():
 
     # 9. Also import into DaVinci Resolve Media Pool
     try:
+        if not resolve and fusion:
+            if hasattr(fusion, "GetResolve"):
+                resolve = fusion.GetResolve()
+            elif hasattr(fusion, "Resolve"):
+                resolve = fusion.Resolve
+
         if resolve and rendered_file:
             pm = resolve.GetProjectManager()
-            proj = pm.GetCurrentProject()
+            proj = pm.GetCurrentProject() if pm else None
             if proj:
                 mp = proj.GetMediaPool()
                 if mp:
                     root_folder = mp.GetRootFolder()
                     target_folder = None
-                    for sub in root_folder.GetSubFolderList():
-                        if sub.GetName() == "CorridorKey_Matte":
-                            target_folder = sub
-                            break
-                    if not target_folder:
-                        target_folder = mp.AddSubFolder(root_folder, "CorridorKey_Matte")
+                    try:
+                        for sub in root_folder.GetSubFolderList():
+                            if sub.GetName() == "CorridorKey_Matte":
+                                target_folder = sub
+                                break
+                        if not target_folder:
+                            target_folder = mp.AddSubFolder(root_folder, "CorridorKey_Matte")
+                    except Exception:
+                        pass
                     if target_folder:
                         mp.SetCurrentFolder(target_folder)
-                    mp.ImportMedia([rendered_file])
+                    res = mp.ImportMedia([str(Path(rendered_file).resolve())])
+                    print(f"[CorridorKey Fusion] Media Pool import result: {res}")
     except Exception as e:
         print(f"[Note] Importing into Media Pool: {e}")
 
