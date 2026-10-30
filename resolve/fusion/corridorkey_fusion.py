@@ -254,6 +254,14 @@ def main():
         out_dir = Path(tempfile.gettempdir()) / "CorridorKey_Renders" / f"{clip_stem}_keyed"
         out_dir.mkdir(parents=True, exist_ok=True)
 
+    # Save last render folder so "Open Render Folder" button opens the exact location
+    try:
+        marker = ck_root / "resolve" / "fusion" / "last_render_folder.txt"
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(str(out_dir.resolve()), encoding="utf-8")
+    except Exception:
+        pass
+
     # 4. Determine format & outputs
     if args.fmt == 0:
         out_fmt = "video"

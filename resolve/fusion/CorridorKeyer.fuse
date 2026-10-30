@@ -185,14 +185,24 @@ function NotifyChanged(inp, param, time)
             os.execute(cmd)
 
         elseif inp == InOpenFolder then
-            local out_dir = [[C:/CorridorKey_Renders]]
-            local f = io.open(out_dir, "r")
-            if not f then
-                out_dir = [[K:/CorridorKey_Renders]]
-            else
+            local root = [[__CORRIDORKEY_ROOT__]]
+            local marker = root .. "/resolve/fusion/last_render_folder.txt"
+            local f = io.open(marker, "r")
+            local target_dir = nil
+            if f then
+                target_dir = f:read("*l")
                 f:close()
             end
-            local win_out = out_dir:gsub("/", "\\")
+            if not target_dir or target_dir == "" then
+                target_dir = root .. "/outputs"
+                local f_test = io.open(target_dir, "r")
+                if not f_test then
+                    target_dir = [[C:/CorridorKey_Renders]]
+                else
+                    f_test:close()
+                end
+            end
+            local win_out = target_dir:gsub("/", "\\")
             os.execute(string.format('start "" "%s"', win_out))
         end
     end
