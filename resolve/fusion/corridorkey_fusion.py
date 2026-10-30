@@ -148,24 +148,38 @@ def main():
 
     # 2. Resolve source file path
     source_path = ""
+    # 2.1 Try resolving from connected node (Loader or MediaIn)
     try:
         in_conn = tool.Input.GetConnectedOutput()
         if in_conn:
             src_tool = in_conn.GetTool()
             if src_tool:
-                # If Loader node
-                if hasattr(src_tool, "Clip") and src_tool.Clip[comp.CurrentTime]:
-                    p = str(src_tool.Clip[comp.CurrentTime])
-                    if os.path.exists(p):
-                        source_path = p
-                # If MediaIn node
-                if not source_path and hasattr(src_tool, "MediaID"):
-                    p = str(src_tool.MediaID[comp.CurrentTime] or "")
-                    if os.path.exists(p):
-                        source_path = p
+                # If Loader node: has non-None Clip input
+                clip_inp = getattr(src_tool, "Clip", None)
+                if clip_inp is not None:
+                    try:
+                        p = str(clip_inp[comp.CurrentTime] or "")
+                        if p and os.path.exists(p):
+                            source_path = p
+                    except Exception:
+                        pass
 
-        # If not resolved from node, query active timeline clip from Resolve API
-        if (not source_path or not os.path.exists(source_path)) and resolve:
+                # If MediaIn node: has non-None MediaID input
+                if not source_path:
+                    media_inp = getattr(src_tool, "MediaID", None)
+                    if media_inp is not None:
+                        try:
+                            p = str(media_inp[comp.CurrentTime] or "")
+                            if p and os.path.exists(p):
+                                source_path = p
+                        except Exception:
+                            pass
+    except Exception as conn_err:
+        print(f"[*] Note inspecting connected node: {conn_err}")
+
+    # 2.2 If not resolved from node, query active timeline clip from DaVinci Resolve Project
+    if (not source_path or not os.path.exists(source_path)) and resolve:
+        try:
             pm = resolve.GetProjectManager()
             proj = pm.GetCurrentProject() if pm else None
             if proj:
@@ -178,9 +192,12 @@ def main():
                             fp = mp_item.GetClipProperty("File Path") or ""
                             if fp and os.path.exists(fp):
                                 source_path = fp
+        except Exception as tl_err:
+            print(f"[*] Note querying timeline: {tl_err}")
 
-        # Fallback: check MediaPool clips
-        if (not source_path or not os.path.exists(source_path)) and resolve:
+    # 2.3 Fallback: query active MediaPool folder clips
+    if (not source_path or not os.path.exists(source_path)) and resolve:
+        try:
             pm = resolve.GetProjectManager()
             proj = pm.GetCurrentProject() if pm else None
             if proj:
@@ -192,8 +209,8 @@ def main():
                         if fp and os.path.exists(fp):
                             source_path = fp
                             break
-    except Exception as e:
-        print(f"[Warning] Note resolving source path: {e}")
+        except Exception as mp_err:
+            print(f"[*] Note querying media pool: {mp_err}")
 
     if not source_path or not os.path.exists(source_path):
         print(f"\n[ERROR] Source media not found!")
