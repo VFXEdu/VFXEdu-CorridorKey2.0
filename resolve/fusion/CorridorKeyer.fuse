@@ -99,12 +99,20 @@ function Create()
 end
 
 function NotifyChanged(inp, param, time)
-    if param and param.Value == 1 then
+    if param and (param.Value == 1 or param.Value == true or (type(param.Value) == "number" and param.Value > 0.5)) then
         if inp == InRender then
             local node_name = self.Name
-            local despill = InDespill:GetValue(self.Comp.CurrentTime).Value
-            local fmt = InFormat:GetValue(self.Comp.CurrentTime).Value
-            local low_vram = InLowVRAM:GetValue(self.Comp.CurrentTime).Value
+            local despill = 0.5
+            local fmt = 0
+            local low_vram = 0
+
+            pcall(function()
+                despill = self.DespillStrength[time or 0] or 0.5
+                fmt = self.OutputFormat[time or 0] or 0
+                low_vram = self.ForceLowVRAM[time or 0] or 0
+            end)
+
+            InStatus:SetAttrs({ LINKS_Name = "Status: 🚀 Launching AI Keyer..." })
 
             -- Resolve root directory
             local root = [[__CORRIDORKEY_ROOT__]]
@@ -150,8 +158,11 @@ function NotifyChanged(inp, param, time)
                 py_exe = "python"
             end
 
-            local cmd = string.format('start /b "" "%s" "%s" --node "%s" --despill %.2f --fmt %d --low-vram %d',
-                py_exe, script_path, node_name, despill, fmt, low_vram)
+            local win_py = py_exe:gsub("/", "\\")
+            local win_script = script_path:gsub("/", "\\")
+
+            local cmd = string.format('start "CorridorKey AI" "%s" "%s" --node "%s" --despill %.2f --fmt %d --low-vram %d',
+                win_py, win_script, node_name, despill, fmt, low_vram)
             os.execute(cmd)
 
         elseif inp == InOpenFolder then
@@ -162,7 +173,8 @@ function NotifyChanged(inp, param, time)
             else
                 f:close()
             end
-            os.execute(string.format('start "" "%s"', out_dir))
+            local win_out = out_dir:gsub("/", "\\")
+            os.execute(string.format('start "" "%s"', win_out))
         end
     end
 end

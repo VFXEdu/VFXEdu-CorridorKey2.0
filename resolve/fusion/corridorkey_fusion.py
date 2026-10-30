@@ -19,6 +19,14 @@ import time
 
 def get_resolve_fusion():
     """Connect to DaVinci Resolve and Fusion API."""
+    if sys.platform == "win32":
+        if "RESOLVE_SCRIPT_API" not in os.environ:
+            os.environ["RESOLVE_SCRIPT_API"] = r"C:\ProgramData\Blackmagic Design\DaVinci Resolve\Support\Developer\Scripting"
+        if "RESOLVE_SCRIPT_LIB" not in os.environ:
+            os.environ["RESOLVE_SCRIPT_LIB"] = r"C:\Program Files\Blackmagic Design\DaVinci Resolve\fusionscript.dll"
+        if "PYTHONPATH" not in os.environ:
+            os.environ["PYTHONPATH"] = r"C:\ProgramData\Blackmagic Design\DaVinci Resolve\Support\Developer\Scripting\Modules"
+
     api_paths = [
         r"C:\ProgramData\Blackmagic Design\DaVinci Resolve\Support\Developer\Scripting\Modules",
         "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting/Modules",
@@ -51,15 +59,16 @@ def get_resolve_fusion():
     return None, None
 
 
-def _has_torch(py_path: Path | None) -> bool:
-    if not py_path or not py_path.is_file():
-        return False
-    parent = py_path.parent
-    site_dirs = [
-        parent / "Lib" / "site-packages" / "torch",
-        parent.parent / "Lib" / "site-packages" / "torch",
-    ]
-    return any(d.is_dir() for d in site_dirs)
+def update_status(tool, text: str):
+    """Safely update the StatusLbl in Fusion Inspector."""
+    if not tool:
+        return
+    try:
+        inp = tool.FindInput("StatusLbl")
+        if inp:
+            inp.SetAttrs({"LINKS_Name": f"Status: {text}"})
+    except Exception:
+        pass
 
 
 def find_corridorkey_root() -> Path:
@@ -68,9 +77,9 @@ def find_corridorkey_root() -> Path:
         return Path(env_root).resolve()
 
     candidates = [
-        Path(r"K:\CorridorKey2.0\CorridorKeyer2.0_Portable_v0.1.3"),
-        Path(r"K:\CorridorKey2.0\CorridorKeyer2.0_Portable_v1.1.1"),
         Path(__file__).resolve().parent.parent.parent,
+        Path(r"K:\Pateron\CorridorKeyer2.0_Portable"),
+        Path(r"K:\CorridorKey2.0\CorridorKeyer2.0_Portable_v0.1.3"),
     ]
     for p in candidates:
         if p and p.is_dir() and (p / "infer.py").is_file():
@@ -78,22 +87,16 @@ def find_corridorkey_root() -> Path:
     return Path(".").resolve()
 
 
-def find_python_executable(ck_root: Path) -> Path | None:
-    venv_py = ck_root / "venv" / "Scripts" / "python.exe"
-    if _has_torch(venv_py):
-        return venv_py.resolve()
-
+def find_python_executable(ck_root: Path) -> Path:
     embed_py = ck_root / "python_embed" / "python.exe"
-    if _has_torch(embed_py):
+    if embed_py.is_file():
         return embed_py.resolve()
 
-    fallbacks = [
-        Path(r"K:\CorridorKey2.0\CorridorKeyer2.0_Portable_v0.1.3\python_embed\python.exe"),
-    ]
-    for f in fallbacks:
-        if _has_torch(f):
-            return f.resolve()
-    return None
+    venv_py = ck_root / "venv" / "Scripts" / "python.exe"
+    if venv_py.is_file():
+        return venv_py.resolve()
+
+    return Path(sys.executable).resolve()
 
 
 def main():
@@ -106,27 +109,42 @@ def main():
 
     args = ap.parse_args()
 
+    print("=" * 65)
+    print("  VFXEdu CorridorKey 2.0 - DaVinci Resolve AI Bridge")
+    print(f"  Target Node : {args.node}")
+    print(f"  Despill     : {args.despill:.2f}")
+    print(f"  Format      : {args.fmt}")
+    print(f"  Low VRAM    : {bool(args.low_vram)}")
+    print("=" * 65)
+
     resolve, fusion = get_resolve_fusion()
     if not fusion:
-        print("[CorridorKey Fusion] Error: Could not connect to DaVinci Resolve Fusion.")
+        print("\n[ERROR] Could not connect to DaVinci Resolve Fusion scripting API.")
+        print("Please ensure DaVinci Resolve is running.")
+        time.sleep(3)
         return
 
     comp = fusion.GetCurrentComp()
     if not comp:
-        print("[CorridorKey Fusion] Error: No active Fusion composition.")
+        print("\n[ERROR] No active Fusion composition open in Resolve.")
+        time.sleep(3)
         return
 
     # Find CorridorKeyer tool
     tool = comp.FindTool(args.node)
     if not tool:
-        print(f"[CorridorKey Fusion] Error: Tool '{args.node}' not found in comp.")
+        for t in comp.GetToolList().values():
+            if t.Name == args.node or "CorridorKeyer" in t.ID or "CorridorKeyer" in t.Name:
+                tool = t
+                break
+
+    if not tool:
+        print(f"\n[ERROR] Tool '{args.node}' not found in current composition.")
+        time.sleep(3)
         return
 
     # 1. Update Inspector Status
-    try:
-        tool.InStatus[comp.CurrentTime] = "Analyzing source media..."
-    except Exception:
-        pass
+    update_status(tool, "Analyzing source media...")
 
     # 2. Resolve source file path
     source_path = ""
@@ -136,16 +154,20 @@ def main():
             src_tool = in_conn.GetTool()
             if src_tool:
                 # If Loader node
-                if hasattr(src_tool, "Clip"):
-                    source_path = src_tool.Clip[comp.CurrentTime]
+                if hasattr(src_tool, "Clip") and src_tool.Clip[comp.CurrentTime]:
+                    p = str(src_tool.Clip[comp.CurrentTime])
+                    if os.path.exists(p):
+                        source_path = p
                 # If MediaIn node
-                elif hasattr(src_tool, "MediaID"):
-                    source_path = src_tool.MediaID[comp.CurrentTime]
+                if not source_path and hasattr(src_tool, "MediaID"):
+                    p = str(src_tool.MediaID[comp.CurrentTime] or "")
+                    if os.path.exists(p):
+                        source_path = p
 
         # If not resolved from node, query active timeline clip from Resolve API
         if (not source_path or not os.path.exists(source_path)) and resolve:
             pm = resolve.GetProjectManager()
-            proj = pm.GetCurrentProject()
+            proj = pm.GetCurrentProject() if pm else None
             if proj:
                 timeline = proj.GetCurrentTimeline()
                 if timeline:
@@ -153,17 +175,34 @@ def main():
                     if item:
                         mp_item = item.GetMediaPoolItem()
                         if mp_item:
-                            source_path = mp_item.GetClipProperty("File Path") or ""
+                            fp = mp_item.GetClipProperty("File Path") or ""
+                            if fp and os.path.exists(fp):
+                                source_path = fp
+
+        # Fallback: check MediaPool clips
+        if (not source_path or not os.path.exists(source_path)) and resolve:
+            pm = resolve.GetProjectManager()
+            proj = pm.GetCurrentProject() if pm else None
+            if proj:
+                mp = proj.GetMediaPool()
+                cur_folder = mp.GetCurrentFolder() if mp else None
+                if cur_folder:
+                    for clip in cur_folder.GetClipList():
+                        fp = clip.GetClipProperty("File Path") or ""
+                        if fp and os.path.exists(fp):
+                            source_path = fp
+                            break
     except Exception as e:
-        print(f"[CorridorKey Fusion] Warning resolving source path: {e}")
+        print(f"[Warning] Note resolving source path: {e}")
 
     if not source_path or not os.path.exists(source_path):
-        print(f"[CorridorKey Fusion] Error: Source file not found: {source_path}")
-        try:
-            tool.InStatus[comp.CurrentTime] = "Error: Source file missing!"
-        except Exception:
-            pass
+        print(f"\n[ERROR] Source media not found!")
+        print("💡 Solution: Connect MediaIn1 (or a Loader node) to CorridorKeyer's orange Input!")
+        update_status(tool, "⚠️ Connect MediaIn to Input!")
+        time.sleep(4)
         return
+
+    print(f"[*] Source Media: {source_path}")
 
     # 3. Setup output folder
     ck_root = find_corridorkey_root()
@@ -204,12 +243,9 @@ def main():
     if args.low_vram:
         cmd.append("--low_vram")
 
-    print(f"[CorridorKey Fusion] Running Inference:\n{' '.join(cmd)}")
-
-    try:
-        tool.InStatus[comp.CurrentTime] = "GPU AI inference running..."
-    except Exception:
-        pass
+    print(f"[*] Starting AI Inference Engine...")
+    print(f"    Command: {' '.join(cmd)}\n")
+    update_status(tool, "🚀 GPU AI Running...")
 
     # 6. Execute process
     proc = subprocess.Popen(
@@ -223,23 +259,19 @@ def main():
 
     prog_regex = re.compile(r"(\d+)/(\d+)")
     for line in proc.stdout:
+        print(line, end="")
         m = prog_regex.search(line)
         if m:
             cur, total = int(m.group(1)), int(m.group(2))
             if total > 0:
                 pct = int((cur / total) * 100)
-                try:
-                    tool.InStatus[comp.CurrentTime] = f"Rendering... {pct}%"
-                except Exception:
-                    pass
+                update_status(tool, f"Rendering... {pct}%")
 
     ret_code = proc.wait()
     if ret_code != 0:
-        print(f"[CorridorKey Fusion] ERROR: Inference failed with code {ret_code}.")
-        try:
-            tool.InStatus[comp.CurrentTime] = f"Inference Failed ({ret_code})"
-        except Exception:
-            pass
+        print(f"\n[ERROR] Inference failed with exit code {ret_code}.")
+        update_status(tool, f"Inference Failed ({ret_code})")
+        time.sleep(4)
         return
 
     # 7. Locate rendered file
@@ -271,10 +303,10 @@ def main():
             except Exception:
                 pass
 
-        tool.InStatus[comp.CurrentTime] = "✨ Render Completed!"
-        print(f"[CorridorKey Fusion] Successfully loaded keyed media into Fusion Flow: {rendered_file}")
+        update_status(tool, "✨ Render Complete!")
+        print(f"\n[SUCCESS] Successfully keyed and added Loader into Fusion: {rendered_file}")
     except Exception as e:
-        print(f"[CorridorKey Fusion] Note adding Loader to Fusion: {e}")
+        print(f"[Note] Adding Loader to Fusion: {e}")
 
     # 9. Also import into DaVinci Resolve Media Pool
     try:
@@ -296,7 +328,12 @@ def main():
                         mp.SetCurrentFolder(target_folder)
                     mp.ImportMedia([rendered_file])
     except Exception as e:
-        print(f"[CorridorKey Fusion] Note importing into Media Pool: {e}")
+        print(f"[Note] Importing into Media Pool: {e}")
+
+    print("\n" + "=" * 65)
+    print(" [DONE] CorridorKey 2.0 AI Processing Completed!")
+    print("=" * 65)
+    time.sleep(2)
 
 
 if __name__ == "__main__":
