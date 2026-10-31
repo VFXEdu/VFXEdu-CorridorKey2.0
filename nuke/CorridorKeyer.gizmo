@@ -170,7 +170,7 @@ Gizmo {
  }
  Switch {
   inputs 4
-  which {{Read_Alpha.file==""?3:parent.output_view}}
+  which {{parent.output_view}}
   name Switch_Output
   xpos 0
   ypos 500

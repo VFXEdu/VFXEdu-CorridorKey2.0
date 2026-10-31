@@ -15,6 +15,7 @@ import sys
 import tempfile
 import threading
 import time
+import traceback
 
 try:
     import nuke
@@ -500,73 +501,97 @@ def execute_keyer(node, preview_single_frame: bool = False) -> bool:
     # 8. Run inference in background thread with Nuke ProgressTask
     def _run_worker():
         progress_task = None
-        if nuke.GUI:
-            task_title = f"CorridorKey Preview f{first_frame}" if preview_single_frame else "CorridorKey 2.0 AI Keying"
-            progress_task = nuke.ProgressTask(task_title)
-            progress_task.setMessage("Initializing GPU AI models...")
-            progress_task.setProgress(5)
+        try:
+            if nuke and nuke.GUI:
+                task_title = f"CorridorKey Preview f{first_frame}" if preview_single_frame else "CorridorKey 2.0 AI Keying"
+                progress_task = nuke.ProgressTask(task_title)
+                progress_task.setMessage("Initializing GPU AI models...")
+                progress_task.setProgress(5)
 
-        proc_env = os.environ.copy()
-        _alloc_val = "max_split_size_mb:512" if sys.platform == "win32" else "expandable_segments:True"
-        proc_env["PYTORCH_ALLOC_CONF"] = _alloc_val
-        proc_env.pop("PYTORCH_CUDA_ALLOC_CONF", None)
-        proc_env["PYTHONUTF8"] = "1"
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            cwd=str(ck_root),
-            env=proc_env,
-        )
+            proc_env = os.environ.copy()
+            _alloc_val = "max_split_size_mb:512" if sys.platform == "win32" else "expandable_segments:True"
+            proc_env["PYTORCH_ALLOC_CONF"] = _alloc_val
+            proc_env.pop("PYTORCH_CUDA_ALLOC_CONF", None)
+            proc_env["PYTHONUTF8"] = "1"
+            proc_env["PYTHONIOENCODING"] = "utf-8"
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1,
+                cwd=str(ck_root),
+                env=proc_env,
+            )
 
-        prog_regex = re.compile(r"(\d+)/(\d+)")
-        output_logs = []
+            prog_regex = re.compile(r"(\d+)/(\d+)")
+            output_logs = []
 
-        for line in proc.stdout:
-            output_logs.append(line)
-            try:
-                nuke.tprint(line.rstrip())
-            except Exception:
-                pass
-            sys.stdout.write(line)
-            sys.stdout.flush()
+            for line in proc.stdout:
+                output_logs.append(line)
+                try:
+                    if nuke:
+                        nuke.tprint(line.rstrip())
+                except Exception:
+                    pass
+                try:
+                    sys.stdout.write(line)
+                    sys.stdout.flush()
+                except Exception:
+                    pass
 
-            line_clean = line.strip()
+                line_clean = line.strip()
+                if progress_task:
+                    if progress_task.isCancelled():
+                        proc.terminate()
+                        print("[CorridorKey] User cancelled keying.")
+                        break
+
+                    progress_task.setMessage(line_clean[:80])
+                    m = prog_regex.search(line_clean)
+                    if m:
+                        try:
+                            cur, total = int(m.group(1)), int(m.group(2))
+                            if total > 0:
+                                pct = int(min(98, 10 + (cur / total) * 88))
+                                progress_task.setProgress(pct)
+                        except Exception:
+                            pass
+
+            ret_code = proc.wait()
             if progress_task:
-                if progress_task.isCancelled():
-                    proc.terminate()
-                    print("[CorridorKey] User cancelled keying.")
-                    break
+                progress_task.setProgress(100)
+                del progress_task
+                progress_task = None
 
-                progress_task.setMessage(line_clean[:80])
-                m = prog_regex.search(line_clean)
-                if m:
-                    try:
-                        cur, total = int(m.group(1)), int(m.group(2))
-                        if total > 0:
-                            pct = int(min(98, 10 + (cur / total) * 88))
-                            progress_task.setProgress(pct)
-                    except Exception:
-                        pass
-
-        ret_code = proc.wait()
-        if progress_task:
-            progress_task.setProgress(100)
-            del progress_task
-
-        if ret_code == 0:
-            print("\n[CorridorKey] Inference completed successfully!")
-            nuke.executeInMainThread(
-                lambda: _on_success(node, input_path, out_dir, output_format, first_frame, last_frame)
-            )
-        else:
-            tail_error = "".join(output_logs[-25:]) if output_logs else "No process output."
-            print(f"\n[CorridorKey] ERROR: Inference failed with exit code {ret_code}.\n{tail_error}")
-            nuke.executeInMainThread(
-                lambda: _on_error(node, ret_code, tail_error)
-            )
+            if ret_code == 0:
+                print("\n[CorridorKey] Inference completed successfully!")
+                if nuke:
+                    nuke.executeInMainThread(
+                        lambda: _on_success(node, input_path, out_dir, output_format, first_frame, last_frame)
+                    )
+            else:
+                tail_error = "".join(output_logs[-25:]) if output_logs else "No process output."
+                print(f"\n[CorridorKey] ERROR: Inference failed with exit code {ret_code}.\n{tail_error}")
+                if nuke:
+                    nuke.executeInMainThread(
+                        lambda: _on_error(node, ret_code, tail_error)
+                    )
+        except Exception as e:
+            err_msg = f"Unexpected error in background worker: {e}\n{traceback.format_exc()}"
+            print(f"\n[CorridorKey] {err_msg}")
+            if progress_task:
+                try:
+                    progress_task.setProgress(100)
+                    del progress_task
+                except Exception:
+                    pass
+            if nuke:
+                nuke.executeInMainThread(
+                    lambda: _on_error(node, -1, err_msg)
+                )
 
     t = threading.Thread(target=_run_worker, daemon=True)
     t.start()
@@ -1017,7 +1042,7 @@ def create_corridorkeyer_node():
             xpos=0,
             ypos=500
         )
-        sw.knob("which").setExpression("[value Read_Alpha.file]==\"\" ? 3 : parent.output_view")
+        sw.knob("which").setExpression("parent.output_view")
 
         out = nuke.nodes.Output(inputs=[sw], xpos=0, ypos=600)
 
