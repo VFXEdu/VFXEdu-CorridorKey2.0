@@ -1,21 +1,26 @@
 #! C:/Program Files/Nuke/Nuke.exe -nx
 version 14.0 v1
 Gizmo {
- inputs 2
+ inputs 4
  tile_color 0x1a4a6eff
  note_font "Verdana Bold"
  note_font_color 0xffffffff
  addUserKnob {20 CorridorKeyer l "CorridorKeyer 2.0"}
- addUserKnob {26 title_lbl l "" +STARTLINE T "<font size='4' color='#00d2ff'><b>⚡ VFXEdu CorridorKey 2.0</b></font> <font color='#888888'>AI Green Screen Keyer</font>"}
- addUserKnob {22 btn_render l "  🚀 Render CorridorKey Matte  " t "Execute AI inference via CorridorKey 2.0 engine" +STARTLINE T "import corridorkey_nuke\ncorridorkey_nuke.execute_keyer(nuke.thisNode())"}
+ addUserKnob {26 title_lbl l "" +STARTLINE T "<font size='4' color='#00d2ff'><b>⚡ VFXEdu CorridorKey 2.0</b></font> <font color='#888888'>AI Video Keyer</font>"}
+ addUserKnob {22 btn_render l "  🚀 Render Full Sequence  " t "Execute AI inference on the full frame range" +STARTLINE T "import corridorkey_nuke\ncorridorkey_nuke.execute_keyer(nuke.thisNode(), preview_single_frame=False)"}
+ addUserKnob {22 btn_preview l " ⚡ Preview Current Frame " t "Quick 1-frame test render on current timeline frame" -STARTLINE T "import corridorkey_nuke\ncorridorkey_nuke.execute_keyer(nuke.thisNode(), preview_single_frame=True)"}
+ addUserKnob {22 btn_reload l " 🔄 Reload Reads " t "Refresh internal and external Read nodes" -STARTLINE T "import corridorkey_nuke\ncorridorkey_nuke.reload_reads(nuke.thisNode())"}
+ addUserKnob {22 btn_open_folder l " 📂 Open Folder " t "Open output render directory in file manager" -STARTLINE T "import corridorkey_nuke\ncorridorkey_nuke.open_output_folder(nuke.thisNode())"}
  addUserKnob {26 status_lbl l "Status: " T "<font color='#aaaaaa'>Ready to Key</font>"}
+ addUserKnob {26 div_view l "" +STARTLINE}
+ addUserKnob {4 output_view l "Output View" t "Switch displayed output in Nuke viewer" M {"Cutout (Premultiplied RGBA)" "Clean FG (Unpremultiplied RGB)" "Alpha Matte (A)" "Source Plate"}}
  addUserKnob {26 div1 l "" +STARTLINE}
  addUserKnob {20 grp_out l "Output Settings" n 1}
  addUserKnob {2 output_dir l "Output Directory"}
  output_dir "\[file dirname \[value root.name]]/corridorkey_output"
  addUserKnob {4 output_format l Format M {exr video}}
  addUserKnob {4 exr_dtype l "EXR Bit Depth" M {half float}}
- addUserKnob {4 frame_range l "Frame Range" M {"Input Node Range" "Global Range" Custom}}
+ addUserKnob {4 frame_range l "Frame Range" M {"Input Node Range" "Global Range" "Current Frame Only" Custom}}
  addUserKnob {3 first_frame l First}
  first_frame 1001
  addUserKnob {3 last_frame l Last}
@@ -24,6 +29,9 @@ Gizmo {
  addUserKnob {20 grp_param l "AI Keying Parameters" n 1}
  addUserKnob {7 despill_strength l "Despill Strength" R 0 1}
  despill_strength 0.5
+ addUserKnob {4 hint_mode l "Hint Conditioning Mode" M {"First Frame Only (Fast)" "Full Animated Sequence (Roto)"}}
+ addUserKnob {6 carry_hint l "Carry Hint to Long Clip" +STARTLINE}
+ carry_hint true
  addUserKnob {6 auto_vram l "Auto VRAM Profiling" +STARTLINE}
  auto_vram true
  addUserKnob {6 low_vram l "Force Low VRAM Mode" +STARTLINE}
@@ -31,11 +39,19 @@ Gizmo {
  hann_chunk 80
  addUserKnob {3 hann_stride l "Hann Stride (Frames)"}
  hann_stride 40
- addUserKnob {6 carry_hint l "Carry Hint to Long Clip" +STARTLINE}
- carry_hint true
  addUserKnob {6 linear_workflow l "Scene-Linear HDR Workflow" +STARTLINE}
  linear_workflow true
  addUserKnob {20 grp_param_end l "" n -1}
+ addUserKnob {20 grp_edge l "Matte & Edge Refine (Post-Process)" n 1}
+ addUserKnob {6 enable_edge_refine l "Enable Edge Refine" +STARTLINE}
+ enable_edge_refine false
+ addUserKnob {7 edge_erode l "Erode / Dilate" R -20 20}
+ edge_erode 0
+ addUserKnob {7 edge_blur l "Edge Blur" R 0 30}
+ edge_blur 0
+ addUserKnob {7 matte_gamma l "Matte Gamma" R 0.2 3}
+ matte_gamma 1
+ addUserKnob {20 grp_edge_end l "" n -1}
  addUserKnob {4 import_to_dag l "DAG Integration" M {Both "Update Gizmo Output" "Create Read Nodes in DAG"}}
  addUserKnob {6 open_folder l "Open Output Folder on Finish" +STARTLINE}
  addUserKnob {20 tab_sys l "System / Paths"}
@@ -55,40 +71,103 @@ Gizmo {
   xpos 200
   ypos 0
  }
- Read {
+ Input {
   inputs 0
-  file_type exr
-  file ""
-  name Read_Cutout
-  xpos 100
-  ypos 100
+  name GarbageMatte
+  number 2
+  xpos 400
+  ypos 0
  }
- Read {
+ Input {
   inputs 0
-  file_type exr
-  file ""
-  name Read_FG
-  xpos 220
-  ypos 100
+  name CoreMatte
+  number 3
+  xpos 600
+  ypos 0
  }
  Read {
   inputs 0
   file_type exr
   file ""
   name Read_Alpha
-  xpos 340
+  xpos 400
   ypos 100
  }
- Switch {
+ FilterErode {
+  channels rgba.alpha
+  size {{parent.edge_erode}}
+  name Node_Erode
+  xpos 400
+  ypos 160
+  disable {{!parent.enable_edge_refine}}
+ }
+ Blur {
+  channels rgba.alpha
+  size {{parent.edge_blur}}
+  name Node_Blur
+  xpos 400
+  ypos 220
+  disable {{!parent.enable_edge_refine}}
+ }
+ Grade {
+  channels rgba.alpha
+  gamma {{parent.matte_gamma}}
+  black_clamp true
+  white_clamp true
+  name Node_Grade
+  xpos 400
+  ypos 280
+  disable {{!parent.enable_edge_refine}}
+ }
+ set N_REFINED_ALPHA [stack 0]
+ Shuffle {
+  red alpha
+  green alpha
+  blue alpha
+  alpha white
+  name View_Alpha_RGB
+  xpos 400
+  ypos 360
+ }
+ Read {
+  inputs 0
+  file_type exr
+  file ""
+  name Read_FG
+  xpos 250
+  ypos 100
+ }
+ set N_READ_FG [stack 0]
+ push $N_REFINED_ALPHA
+ Copy {
   inputs 2
-  which 0
+  from0 rgba.alpha
+  to0 rgba.alpha
+  name Copy_Refined_Alpha
+  xpos 250
+  ypos 280
+ }
+ Premult {
+  name Premult_FG
+  xpos 250
+  ypos 360
+ }
+ push $N_READ_FG
+ Dot {
+  name Dot_FG
+  xpos 180
+  ypos 360
+ }
+ Switch {
+  inputs 4
+  which {{Read_Alpha.file==""?3:parent.output_view}}
   name Switch_Output
   xpos 0
-  ypos 200
+  ypos 500
  }
  Output {
   name Output1
   xpos 0
-  ypos 300
+  ypos 600
  }
 end_group

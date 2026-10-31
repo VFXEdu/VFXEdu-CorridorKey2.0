@@ -18,6 +18,9 @@ import time
 
 try:
     import nuke
+    # Check if this is actual Foundry Nuke or just the local directory package
+    if not hasattr(nuke, "nodes"):
+        nuke = None
 except ImportError:
     # Allows offline testing / unit test mocking outside Nuke
     nuke = None
@@ -47,8 +50,10 @@ def find_corridorkey_root() -> Path | None:
     # 2. Known portable installations with weights
     candidates.append(Path(r"K:\CorridorKey2.0\CorridorKeyer2.0_Portable_v0.1.3"))
     candidates.append(Path(r"K:\CorridorKey2.0\CorridorKeyer2.0_Portable_v1.1.1"))
+    candidates.append(Path(r"K:\Pateron\CorridorKeyer2.0_Portable"))
 
     # 3. Main Development Repository
+    candidates.append(Path(r"K:\________________VFXEdu_Script\CorridorKeyer2.0"))
 
     # 4. Relative to this script (e.g. repo_root/nuke/corridorkey_nuke.py -> repo_root)
     this_dir = Path(__file__).resolve().parent
@@ -57,7 +62,6 @@ def find_corridorkey_root() -> Path | None:
 
     for p in candidates:
         if p and p.is_dir() and (p / "infer.py").is_file():
-            # Check if this candidate actually has a working python with torch
             py = find_python_executable(p)
             if py and _has_torch(py):
                 return p.resolve()
@@ -90,6 +94,7 @@ def find_python_executable(ck_root: Path | None) -> Path | None:
 
     # Cross-search known working environments if ck_root's Python is not setup
     fallback_pythons = [
+        Path(r"K:\Pateron\CorridorKeyer2.0_Portable\python_embed\python.exe"),
         Path(r"K:\CorridorKey2.0\CorridorKeyer2.0_Portable_v0.1.3\python_embed\python.exe"),
     ]
     for fpy in fallback_pythons:
@@ -123,6 +128,7 @@ def build_command_args(
     hann_chunk: int = 0,
     hann_stride: int = 0,
     hint_first_frame: str | None = None,
+    hint_video: str | None = None,
     carry_hint: bool = True,
     hint_quality: float = 0.95,
     linear_workflow: bool = True,
@@ -155,7 +161,10 @@ def build_command_args(
         if hann_stride > 0:
             cmd.extend(["--hann_stride", str(int(hann_stride))])
 
-    if hint_first_frame and os.path.exists(hint_first_frame):
+    if hint_video and os.path.exists(hint_video):
+        cmd.extend(["--hint_video", str(hint_video)])
+        cmd.extend(["--hint_quality", f"{float(hint_quality):.2f}"])
+    elif hint_first_frame and os.path.exists(hint_first_frame):
         cmd.extend(["--hint_first_frame", str(hint_first_frame)])
         cmd.extend(["--hint_quality", f"{float(hint_quality):.2f}"])
 
@@ -172,41 +181,100 @@ def build_command_args(
     return cmd
 
 
-def execute_keyer(node) -> bool:
+def open_output_folder(node):
+    """Open output directory in OS file manager."""
+    if nuke is None or node is None:
+        return
+    out_dir_val = ""
+    if hasattr(node, "knob") and node.knob("output_dir"):
+        try:
+            out_dir_val = node.knob("output_dir").evaluate().strip()
+        except Exception:
+            out_dir_val = node.knob("output_dir").value().strip()
+
+    if not out_dir_val or not os.path.isdir(out_dir_val):
+        out_dir_val = os.path.join(tempfile.gettempdir(), "corridorkey_output")
+
+    try:
+        if sys.platform == "win32":
+            os.startfile(str(out_dir_val))
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", str(out_dir_val)])
+        else:
+            subprocess.Popen(["xdg-open", str(out_dir_val)])
+    except Exception as e:
+        if nuke.GUI:
+            nuke.message(f"Could not open directory: {e}")
+
+
+def reload_reads(node):
+    """Reload all internal Read nodes and refresh cache."""
+    if nuke is None or node is None:
+        return
+    reloaded = 0
+    try:
+        with node:
+            for rname in ("Read_Cutout", "Read_FG", "Read_Alpha"):
+                r = nuke.toNode(rname)
+                if r:
+                    r_file = r.knob("file").value().strip()
+                    if r_file:
+                        try:
+                            r.knob("reload").execute()
+                            reloaded += 1
+                        except Exception:
+                            pass
+        if node.knob("status_lbl"):
+            node.knob("status_lbl").setValue(f"<font color='#00ff88'><b>Reloaded {reloaded} Read Node(s)</b></font>")
+        if nuke.GUI:
+            nuke.message(f"Successfully reloaded {reloaded} CorridorKey Read node(s).")
+    except Exception as e:
+        if nuke.GUI:
+            nuke.message(f"Error reloading reads: {e}")
+
+
+def execute_keyer(node, preview_single_frame: bool = False) -> bool:
     """Main execution function triggered by the Gizmo button in Nuke."""
-    if nuke is None:
-        print("[CorridorKey] Error: nuke module not available.")
+    if nuke is None or node is None:
+        print("[CorridorKey] Error: nuke module or node not available.")
         return False
 
     # 1. Resolve CorridorKey root & Python executable
     ck_root_val = node.knob("ck_root").value().strip() if node.knob("ck_root") else ""
     ck_root = Path(ck_root_val) if ck_root_val and os.path.isdir(ck_root_val) else find_corridorkey_root()
     if not ck_root or not ck_root.is_dir():
-        nuke.message(
-            "CorridorKey 2.0 root directory not found!\n\n"
-            "Please specify the CorridorKey installation path in the 'System / Paths' tab."
-        )
+        if nuke.GUI:
+            nuke.message(
+                "CorridorKey 2.0 root directory not found!\n\n"
+                "Please specify the CorridorKey installation path in the 'System / Paths' tab."
+            )
         return False
 
     py_exe_val = node.knob("python_path").value().strip() if node.knob("python_path") else ""
     python_exe = Path(py_exe_val) if py_exe_val and os.path.isfile(py_exe_val) else find_python_executable(ck_root)
     if not python_exe or not python_exe.is_file() or not _has_torch(python_exe):
-        nuke.message(
-            f"PyTorch-enabled Python executable not found for CorridorKey!\n\n"
-            f"Checked Root: {ck_root}\n"
-            f"Please ensure PyTorch is installed in venv or python_embed."
-        )
+        if nuke.GUI:
+            nuke.message(
+                f"PyTorch-enabled Python executable not found for CorridorKey!\n\n"
+                f"Checked Root: {ck_root}\n"
+                f"Please ensure PyTorch is installed in venv or python_embed."
+            )
         return False
 
     # 2. Check input node
     source_node = node.input(0)
     if not source_node:
-        nuke.message("Please connect a Source plate to Input 0 (Source) of CorridorKeyer!")
+        if nuke.GUI:
+            nuke.message("Please connect a Source plate to Input 0 (Source) of CorridorKeyer!")
         return False
 
     # Determine frame range
     range_mode = node.knob("frame_range").value() if node.knob("frame_range") else "Input Node Range"
-    if range_mode == "Global Range":
+    if preview_single_frame or range_mode == "Current Frame Only":
+        cur = int(nuke.frame())
+        first_frame = cur
+        last_frame = cur
+    elif range_mode == "Global Range":
         first_frame = int(nuke.root().firstFrame())
         last_frame = int(nuke.root().lastFrame())
     elif range_mode == "Custom":
@@ -239,6 +307,8 @@ def execute_keyer(node) -> bool:
         out_dir_val = os.path.join(base_dir, "corridorkey_output")
 
     out_dir = Path(out_dir_val).resolve()
+    if preview_single_frame:
+        out_dir = out_dir / f"preview_f{first_frame}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # 4. Resolve input path
@@ -288,19 +358,37 @@ def execute_keyer(node) -> bool:
     # 5. Check FrameHint input (Input 1)
     hint_node = node.input(1)
     hint_file_path = None
-    if hint_node:
-        temp_hint_dir = out_dir / "_temp_hint"
-        temp_hint_dir.mkdir(parents=True, exist_ok=True)
-        hint_file_path = str(temp_hint_dir / "frame_hint.png").replace("\\", "/")
+    hint_video_path = None
+    hint_mode_val = node.knob("hint_mode").value() if node.knob("hint_mode") else "First Frame Only (Fast)"
 
-        print(f"[CorridorKey] Baking first-frame hint from Input 1 to: {hint_file_path}")
-        write_hint = nuke.nodes.Write(inputs=[hint_node])
-        write_hint.knob("file").setValue(hint_file_path)
-        write_hint.knob("file_type").setValue("png")
-        try:
-            nuke.execute(write_hint, first_frame, first_frame, 1)
-        finally:
-            nuke.delete(write_hint)
+    if hint_node:
+        if "Full Animated Sequence" in hint_mode_val and last_frame > first_frame:
+            temp_hint_dir = out_dir / "_temp_hint_seq"
+            temp_hint_dir.mkdir(parents=True, exist_ok=True)
+            hint_pattern = str(temp_hint_dir / "hint_%06d.png").replace("\\", "/")
+
+            print(f"[CorridorKey] Baking full animated hint sequence to: {hint_pattern}")
+            write_hint = nuke.nodes.Write(inputs=[hint_node])
+            write_hint.knob("file").setValue(hint_pattern)
+            write_hint.knob("file_type").setValue("png")
+            try:
+                nuke.execute(write_hint, first_frame, last_frame, 1)
+                hint_video_path = str(temp_hint_dir)
+            finally:
+                nuke.delete(write_hint)
+        else:
+            temp_hint_dir = out_dir / "_temp_hint"
+            temp_hint_dir.mkdir(parents=True, exist_ok=True)
+            hint_file_path = str(temp_hint_dir / "frame_hint.png").replace("\\", "/")
+
+            print(f"[CorridorKey] Baking single-frame hint to: {hint_file_path}")
+            write_hint = nuke.nodes.Write(inputs=[hint_node])
+            write_hint.knob("file").setValue(hint_file_path)
+            write_hint.knob("file_type").setValue("png")
+            try:
+                nuke.execute(write_hint, first_frame, first_frame, 1)
+            finally:
+                nuke.delete(write_hint)
 
     # 6. Read parameter knobs
     output_format = node.knob("output_format").value() if node.knob("output_format") else "exr"
@@ -329,18 +417,23 @@ def execute_keyer(node) -> bool:
         hann_chunk=hann_chunk,
         hann_stride=hann_stride,
         hint_first_frame=hint_file_path,
+        hint_video=hint_video_path,
         carry_hint=carry_hint,
         hint_quality=hint_quality,
         linear_workflow=linear_wf,
     )
 
     print(f"[CorridorKey] Executing Command:\n{' '.join(cmd)}")
+    if node.knob("status_lbl"):
+        mode_str = f"Preview f{first_frame}" if preview_single_frame else f"Rendering [{first_frame}:{last_frame}]"
+        node.knob("status_lbl").setValue(f"<font color='#00d2ff'><b>🚀 AI Running ({mode_str})...</b></font>")
 
     # 8. Run inference in background thread with Nuke ProgressTask
     def _run_worker():
         progress_task = None
         if nuke.GUI:
-            progress_task = nuke.ProgressTask("CorridorKey 2.0 AI Keying")
+            task_title = f"CorridorKey Preview f{first_frame}" if preview_single_frame else "CorridorKey 2.0 AI Keying"
+            progress_task = nuke.ProgressTask(task_title)
             progress_task.setMessage("Initializing GPU AI models...")
             progress_task.setProgress(5)
 
@@ -403,15 +496,22 @@ def execute_keyer(node) -> bool:
             tail_error = "".join(output_logs[-25:]) if output_logs else "No process output."
             print(f"\n[CorridorKey] ERROR: Inference failed with exit code {ret_code}.\n{tail_error}")
             nuke.executeInMainThread(
-                lambda: nuke.message(
-                    f"CorridorKey Inference Failed (Exit code: {ret_code})!\n\n"
-                    f"--- Error Details ---\n{tail_error}"
-                )
+                lambda: _on_error(node, ret_code, tail_error)
             )
 
     t = threading.Thread(target=_run_worker, daemon=True)
     t.start()
     return True
+
+
+def _on_error(node, ret_code: int, tail_error: str):
+    if node.knob("status_lbl"):
+        node.knob("status_lbl").setValue(f"<font color='#ff4444'><b>Error (Exit {ret_code})</b></font>")
+    if nuke and nuke.GUI:
+        nuke.message(
+            f"CorridorKey Inference Failed (Exit code: {ret_code})!\n\n"
+            f"--- Error Details ---\n{tail_error}"
+        )
 
 
 def _on_success(node, input_path: str, out_dir: Path, output_format: str, first_frame: int, last_frame: int):
@@ -453,22 +553,39 @@ def _on_success(node, input_path: str, out_dir: Path, output_format: str, first_
                 r_cutout.knob("last").setValue(last_frame)
                 r_cutout.knob("origfirst").setValue(first_frame)
                 r_cutout.knob("origlast").setValue(last_frame)
+                try:
+                    r_cutout.knob("reload").execute()
+                except Exception:
+                    pass
 
             r_alpha = nuke.toNode("Read_Alpha")
             if r_alpha and alpha_path:
                 r_alpha.knob("file").setValue(alpha_path)
                 r_alpha.knob("first").setValue(first_frame)
                 r_alpha.knob("last").setValue(last_frame)
+                r_alpha.knob("origfirst").setValue(first_frame)
+                r_alpha.knob("origlast").setValue(last_frame)
+                try:
+                    r_alpha.knob("reload").execute()
+                except Exception:
+                    pass
 
             r_fg = nuke.toNode("Read_FG")
             if r_fg and fg_path:
                 r_fg.knob("file").setValue(fg_path)
                 r_fg.knob("first").setValue(first_frame)
                 r_fg.knob("last").setValue(last_frame)
+                r_fg.knob("origfirst").setValue(first_frame)
+                r_fg.knob("origlast").setValue(last_frame)
+                try:
+                    r_fg.knob("reload").execute()
+                except Exception:
+                    pass
 
             sw = nuke.toNode("Switch_Output")
-            if sw:
-                sw.knob("which").setValue(1)
+            if sw and node.knob("output_view"):
+                # Default to Cutout (index 0) upon completion
+                node.knob("output_view").setValue("Cutout (Premultiplied RGBA)")
     except Exception as e:
         print(f"[CorridorKey] Note: Internal Gizmo wiring update: {e}")
 
@@ -480,26 +597,19 @@ def _on_success(node, input_path: str, out_dir: Path, output_format: str, first_
         node.knob("status_lbl").setValue("<font color='#00ff88'><b>Render Completed!</b></font>")
 
     if node.knob("open_folder") and node.knob("open_folder").value():
-        try:
-            if sys.platform == "win32":
-                os.startfile(str(out_dir))
-            elif sys.platform == "darwin":
-                subprocess.Popen(["open", str(out_dir)])
-            else:
-                subprocess.Popen(["xdg-open", str(out_dir)])
-        except Exception:
-            pass
+        open_output_folder(node)
 
-    nuke.message(f"CorridorKey 2.0 Keying Finished!\nOutput saved to:\n{out_dir}")
+    if nuke.GUI:
+        nuke.message(f"CorridorKey 2.0 Keying Finished!\nOutput saved to:\n{out_dir}")
 
 
 def _build_dag_node_tree(gizmo_node, alpha_path: str, fg_path: str, cutout_path: str, first: int, last: int):
-    """Create clean Read -> Copy(Alpha) -> Premult node tree in Nuke's Node Graph."""
+    """Create clean Read -> Garbage/Core -> Copy(Alpha) -> Premult node tree in Nuke DAG."""
     gx = gizmo_node.xpos()
     gy = gizmo_node.ypos()
 
     if cutout_path:
-        r_cut = nuke.nodes.Read(xpos=gx + 150, ypos=gy)
+        r_cut = nuke.nodes.Read(xpos=gx + 160, ypos=gy)
         r_cut.knob("file").setValue(cutout_path)
         r_cut.knob("first").setValue(first)
         r_cut.knob("last").setValue(last)
@@ -524,11 +634,40 @@ def _build_dag_node_tree(gizmo_node, alpha_path: str, fg_path: str, cutout_path:
         r_alpha.knob("origlast").setValue(last)
         r_alpha.knob("label").setValue("CorridorKey Alpha Matte")
 
-        cpy = nuke.nodes.Copy(xpos=gx, ypos=gy + 180, inputs=[r_fg, r_alpha])
+        current_alpha = r_alpha
+
+        # Hook GarbageMatte (Input 2) if connected
+        garbage_node = gizmo_node.input(2)
+        if garbage_node:
+            m_garb = nuke.nodes.Merge2(
+                inputs=[current_alpha, garbage_node],
+                operation="stencil",
+                Achannels="alpha",
+                Bchannels="alpha",
+                output="alpha",
+                xpos=gx + 120,
+                ypos=gy + 160,
+                label="Garbage Cutout",
+            )
+            current_alpha = m_garb
+
+        # Hook CoreMatte (Input 3) if connected
+        core_node = gizmo_node.input(3)
+        if core_node:
+            m_core = nuke.nodes.ChannelMerge(
+                inputs=[current_alpha, core_node],
+                operation="union",
+                xpos=gx + 120,
+                ypos=gy + 220,
+                label="Core Holdout",
+            )
+            current_alpha = m_core
+
+        cpy = nuke.nodes.Copy(xpos=gx, ypos=gy + 280, inputs=[r_fg, current_alpha])
         cpy.knob("from0").setValue("rgba.alpha")
         cpy.knob("to0").setValue("rgba.alpha")
 
-        pm = nuke.nodes.Premult(xpos=gx, ypos=gy + 240, inputs=[cpy])
+        pm = nuke.nodes.Premult(xpos=gx, ypos=gy + 340, inputs=[cpy])
         pm.knob("label").setValue("Keyed & Despilled")
 
 
@@ -547,18 +686,45 @@ def create_corridorkeyer_node():
 
     title = nuke.Text_Knob(
         "title_lbl", "",
-        "<font size='4' color='#00d2ff'><b>⚡ VFXEdu CorridorKey 2.0</b></font> <font color='#888888'>AI Green Screen Keyer</font>"
+        "<font size='4' color='#00d2ff'><b>⚡ VFXEdu CorridorKey 2.0</b></font> <font color='#888888'>AI Video Keyer</font>"
     )
     group.addKnob(title)
 
     btn_render = nuke.PyScript_Knob(
-        "btn_render", "  🚀 Render CorridorKey Matte  ",
-        "import corridorkey_nuke\ncorridorkey_nuke.execute_keyer(nuke.thisNode())"
+        "btn_render", "  🚀 Render Full Sequence  ",
+        "import corridorkey_nuke\ncorridorkey_nuke.execute_keyer(nuke.thisNode(), preview_single_frame=False)"
     )
     group.addKnob(btn_render)
 
+    btn_preview = nuke.PyScript_Knob(
+        "btn_preview", " ⚡ Preview Current Frame ",
+        "import corridorkey_nuke\ncorridorkey_nuke.execute_keyer(nuke.thisNode(), preview_single_frame=True)"
+    )
+    group.addKnob(btn_preview)
+
+    btn_reload = nuke.PyScript_Knob(
+        "btn_reload", " 🔄 Reload Reads ",
+        "import corridorkey_nuke\ncorridorkey_nuke.reload_reads(nuke.thisNode())"
+    )
+    group.addKnob(btn_reload)
+
+    btn_open = nuke.PyScript_Knob(
+        "btn_open_folder", " 📂 Open Folder ",
+        "import corridorkey_nuke\ncorridorkey_nuke.open_output_folder(nuke.thisNode())"
+    )
+    group.addKnob(btn_open)
+
     status = nuke.Text_Knob("status_lbl", "Status: ", "<font color='#aaaaaa'>Ready to Key</font>")
     group.addKnob(status)
+
+    div_v = nuke.Text_Knob("div_view", "", "")
+    group.addKnob(div_v)
+
+    out_v = nuke.Enumeration_Knob(
+        "output_view", "Output View",
+        ["Cutout (Premultiplied RGBA)", "Clean FG (Unpremultiplied RGB)", "Alpha Matte (A)", "Source Plate"]
+    )
+    group.addKnob(out_v)
 
     div1 = nuke.Text_Knob("div1", "", "")
     group.addKnob(div1)
@@ -578,7 +744,10 @@ def create_corridorkeyer_node():
     exr_dt.setValue("half")
     group.addKnob(exr_dt)
 
-    f_range = nuke.Enumeration_Knob("frame_range", "Frame Range", ["Input Node Range", "Global Range", "Custom"])
+    f_range = nuke.Enumeration_Knob(
+        "frame_range", "Frame Range",
+        ["Input Node Range", "Global Range", "Current Frame Only", "Custom"]
+    )
     group.addKnob(f_range)
 
     ff = nuke.Int_Knob("first_frame", "First")
@@ -600,6 +769,16 @@ def create_corridorkeyer_node():
     despill.setValue(0.5)
     group.addKnob(despill)
 
+    hint_m = nuke.Enumeration_Knob(
+        "hint_mode", "Hint Conditioning Mode",
+        ["First Frame Only (Fast)", "Full Animated Sequence (Roto)"]
+    )
+    group.addKnob(hint_m)
+
+    carry_h = nuke.Boolean_Knob("carry_hint", "Carry Hint to Long Clip")
+    carry_h.setValue(True)
+    group.addKnob(carry_h)
+
     auto_v = nuke.Boolean_Knob("auto_vram", "Auto VRAM Profiling")
     auto_v.setValue(True)
     group.addKnob(auto_v)
@@ -616,10 +795,6 @@ def create_corridorkeyer_node():
     h_stride.setValue(40)
     group.addKnob(h_stride)
 
-    carry_h = nuke.Boolean_Knob("carry_hint", "Carry Hint to Long Clip")
-    carry_h.setValue(True)
-    group.addKnob(carry_h)
-
     lin_wf = nuke.Boolean_Knob("linear_workflow", "Scene-Linear HDR Workflow")
     lin_wf.setValue(True)
     group.addKnob(lin_wf)
@@ -627,7 +802,35 @@ def create_corridorkeyer_node():
     grp_param_end = nuke.Tab_Knob("grp_param_end", "", nuke.TABENDGROUP)
     group.addKnob(grp_param_end)
 
-    import_dag = nuke.Enumeration_Knob("import_to_dag", "DAG Integration", ["Both", "Update Gizmo Output", "Create Read Nodes in DAG"])
+    grp_edge = nuke.Tab_Knob("grp_edge", "Matte & Edge Refine (Post-Process)", nuke.TABBEGANGROUP)
+    group.addKnob(grp_edge)
+
+    en_edge = nuke.Boolean_Knob("enable_edge_refine", "Enable Edge Refine")
+    en_edge.setValue(False)
+    group.addKnob(en_edge)
+
+    e_erode = nuke.Double_Knob("edge_erode", "Erode / Dilate")
+    e_erode.setRange(-20.0, 20.0)
+    e_erode.setValue(0.0)
+    group.addKnob(e_erode)
+
+    e_blur = nuke.Double_Knob("edge_blur", "Edge Blur")
+    e_blur.setRange(0.0, 30.0)
+    e_blur.setValue(0.0)
+    group.addKnob(e_blur)
+
+    m_gamma = nuke.Double_Knob("matte_gamma", "Matte Gamma")
+    m_gamma.setRange(0.2, 3.0)
+    m_gamma.setValue(1.0)
+    group.addKnob(m_gamma)
+
+    grp_edge_end = nuke.Tab_Knob("grp_edge_end", "", nuke.TABENDGROUP)
+    group.addKnob(grp_edge_end)
+
+    import_dag = nuke.Enumeration_Knob(
+        "import_to_dag", "DAG Integration",
+        ["Both", "Update Gizmo Output", "Create Read Nodes in DAG"]
+    )
     group.addKnob(import_dag)
 
     open_f = nuke.Boolean_Knob("open_folder", "Open Output Folder on Finish")
@@ -652,19 +855,57 @@ def create_corridorkeyer_node():
     with group:
         in_source = nuke.nodes.Input(name="Source", xpos=0, ypos=0)
         in_hint = nuke.nodes.Input(name="FrameHint", xpos=200, ypos=0)
+        in_garb = nuke.nodes.Input(name="GarbageMatte", xpos=400, ypos=0)
+        in_core = nuke.nodes.Input(name="CoreMatte", xpos=600, ypos=0)
+
+        read_alpha = nuke.nodes.Read(name="Read_Alpha", xpos=400, ypos=100)
+        read_alpha.knob("file").setValue("")
+
+        node_erode = nuke.nodes.FilterErode(name="Node_Erode", inputs=[read_alpha], xpos=400, ypos=160)
+        node_erode.knob("channels").setValue("rgba.alpha")
+        node_erode.knob("size").setExpression("parent.edge_erode")
+        node_erode.knob("disable").setExpression("!parent.enable_edge_refine")
+
+        node_blur = nuke.nodes.Blur(name="Node_Blur", inputs=[node_erode], xpos=400, ypos=220)
+        node_blur.knob("channels").setValue("rgba.alpha")
+        node_blur.knob("size").setExpression("parent.edge_blur")
+        node_blur.knob("disable").setExpression("!parent.enable_edge_refine")
+
+        node_grade = nuke.nodes.Grade(name="Node_Grade", inputs=[node_blur], xpos=400, ypos=280)
+        node_grade.knob("channels").setValue("rgba.alpha")
+        node_grade.knob("gamma").setExpression("parent.matte_gamma")
+        node_grade.knob("black_clamp").setValue(True)
+        node_grade.knob("white_clamp").setValue(True)
+        node_grade.knob("disable").setExpression("!parent.enable_edge_refine")
+
+        view_alpha = nuke.nodes.Shuffle(name="View_Alpha_RGB", inputs=[node_grade], xpos=400, ypos=360)
+        view_alpha.knob("red").setValue("alpha")
+        view_alpha.knob("green").setValue("alpha")
+        view_alpha.knob("blue").setValue("alpha")
+        view_alpha.knob("alpha").setValue("white")
+
+        read_fg = nuke.nodes.Read(name="Read_FG", xpos=250, ypos=100)
+        read_fg.knob("file").setValue("")
+
+        copy_refined = nuke.nodes.Copy(name="Copy_Refined_Alpha", inputs=[read_fg, node_grade], xpos=250, ypos=280)
+        copy_refined.knob("from0").setValue("rgba.alpha")
+        copy_refined.knob("to0").setValue("rgba.alpha")
+
+        premult_fg = nuke.nodes.Premult(name="Premult_FG", inputs=[copy_refined], xpos=250, ypos=360)
+
+        dot_fg = nuke.nodes.Dot(name="Dot_FG", inputs=[read_fg], xpos=180, ypos=360)
 
         read_cutout = nuke.nodes.Read(name="Read_Cutout", xpos=100, ypos=100)
         read_cutout.knob("file").setValue("")
 
-        read_fg = nuke.nodes.Read(name="Read_FG", xpos=220, ypos=100)
-        read_fg.knob("file").setValue("")
+        sw = nuke.nodes.Switch(
+            name="Switch_Output",
+            inputs=[premult_fg, dot_fg, view_alpha, in_source],
+            xpos=0,
+            ypos=500
+        )
+        sw.knob("which").setExpression("[value Read_Alpha.file]==\"\" ? 3 : parent.output_view")
 
-        read_alpha = nuke.nodes.Read(name="Read_Alpha", xpos=340, ypos=100)
-        read_alpha.knob("file").setValue("")
-
-        sw = nuke.nodes.Switch(name="Switch_Output", inputs=[in_source, read_cutout], xpos=0, ypos=200)
-        sw.knob("which").setValue(0)
-
-        out = nuke.nodes.Output(inputs=[sw], xpos=0, ypos=300)
+        out = nuke.nodes.Output(inputs=[sw], xpos=0, ypos=600)
 
     return group

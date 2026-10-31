@@ -6,16 +6,22 @@ The Foundry **Nuke(누크)**와 **CorridorKey 2.0**을 연결하는 전용 기�
 
 ## 🌟 주요 특징 (Key Features)
 
-1. **누크 노드 그래프 원클릭 키잉**:
-   - 누크 안에서 `CorridorKeyer` 노드를 생성하고 원본 플레이트와 (선택) 첫 프레임 마스크(`FrameHint`)를 연결한 후 버튼 클릭 한 번으로 AI 키잉을 실행합니다.
-2. **누크 환경과 완전 격리 (No Conflict)**:
-   - 누크 내장 파이썬과 별도로 CorridorKey의 격리된 **무설치 포터블 Python(PyTorch + CUDA 12.8)**을 서브프로세스로 호출하므로 라이브러리 충돌이 전혀 없습니다.
-3. **VFX 스튜디오 표준 씬 리니어(Scene-Linear) EXR 워크플로우**:
+1. **누크 노드 그래프 원클릭 키잉 & 실시간 뷰어 스위처**:
+   - `CorridorKeyer` 노드를 생성하고 원클릭으로 AI 키잉을 실행합니다.
+   - 뷰어에서 **Cutout (RGBA)**, **Clean FG (RGB)**, **Alpha Matte (A)**, **Source Plate**를 실시간으로 즉시 전환하여 확인할 수 있습니다.
+2. **1프레임 초고속 프리뷰 (`Preview Current Frame`)**:
+   - 전체 시퀀스를 돌리기 전에 현재 타임라인 프레임 1장만 **3~5초 만에 빠른 테스트 렌더링**하여 키 품질을 즉시 점검할 수 있습니다.
+3. **애니메이션 Roto 시퀀스 힌트 지원**:
+   - 첫 프레임 단일 힌트뿐만 아니라, 움직이는 **Full Animated Sequence (Roto)**를 연결하여 샷 전체에 걸친 정밀한 가이드 키잉이 가능합니다.
+4. **Garbage Matte 및 Core Matte 입력 지원**:
+   - Input 2 (`GarbageMatte`): 그린스크린 외곽 마이크, 조명 스탠드, 트래킹 마커 영역을 자동 컷아웃
+   - Input 3 (`CoreMatte`): 인물 몸통 구멍 뚫림 방지용 고정 홀드아웃 지원
+5. **내장 매트 엣지 후처리 (`Matte & Edge Refine`)**:
+   - 노드 내부에서 `Erode/Dilate (수축/확장)`, `Edge Blur (소프트니스)`, `Matte Gamma`를 실시간 슬라이더로 조절 가능합니다.
+6. **VFX 스튜디오 표준 씬 리니어(Scene-Linear) EXR 워크플로우**:
    - 16-bit Half 또는 32-bit Float OpenEXR 시퀀스로 직접 렌더링되어 감마 왜곡이나 클리핑 없는 네이티브 컬러를 유지합니다.
-4. **결과물 자동 DAG 연결**:
-   - 렌더가 완료되면 누크 노드 그래프에 `Read (Alpha)` + `Read (Clean FG)` + `Copy` + `Premult` 노드 트리가 자동으로 배치되어 즉시 컴포지팅에 사용할 수 있습니다.
-5. **누크 메뉴바 및 노드 툴바 탑재**:
-   - `VFXEdu` 메뉴 및 `Keyer` 툴바 카테고리에 기본 등록됩니다.
+7. **누크 환경과 완전 격리 (No Conflict)**:
+   - 누크 내장 파이썬과 별도로 CorridorKey의 격리된 **무설치 포터블 Python(PyTorch + CUDA 12.8)**을 서브프로세스로 호출하므로 라이브러리 충돌이 전혀 없습니다.
 
 ---
 

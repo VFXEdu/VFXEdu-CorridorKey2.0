@@ -101,6 +101,38 @@ class TestNukeBridge(unittest.TestCase):
             if dummy_hint.exists():
                 dummy_hint.unlink()
 
+    def test_build_command_args_hint_video(self):
+        root = corridorkey_nuke.find_corridorkey_root()
+        py_exe = corridorkey_nuke.find_python_executable(root)
+
+        dummy_seq_dir = Path(root) / "tmp" / "_test_hint_seq"
+        dummy_seq_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            cmd = corridorkey_nuke.build_command_args(
+                ck_root=root,
+                python_exe=py_exe,
+                input_path="D:/plates/shot_02",
+                output_dir="D:/renders",
+                hint_video=str(dummy_seq_dir),
+                hint_quality=0.85,
+            )
+            self.assertIn("--hint_video", cmd)
+            self.assertIn(str(dummy_seq_dir), cmd)
+            self.assertIn("--hint_quality", cmd)
+            self.assertIn("0.85", cmd)
+        finally:
+            if dummy_seq_dir.exists():
+                import shutil
+                shutil.rmtree(dummy_seq_dir, ignore_errors=True)
+
+    def test_offline_utility_stubs(self):
+        # Verify offline executions safely return without throwing exceptions
+        self.assertIsNone(corridorkey_nuke.open_output_folder(None))
+        self.assertIsNone(corridorkey_nuke.reload_reads(None))
+        self.assertFalse(corridorkey_nuke.execute_keyer(None))
+        self.assertIsNone(corridorkey_nuke.create_corridorkeyer_node())
+
 
 if __name__ == "__main__":
     unittest.main()
