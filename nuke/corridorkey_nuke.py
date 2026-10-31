@@ -411,34 +411,51 @@ def execute_keyer(node, preview_single_frame: bool = False) -> bool:
     hint_quality = float(node.knob("hint_quality").value()) if node.knob("hint_quality") else 0.95
     linear_wf = bool(node.knob("linear_workflow").value()) if node.knob("linear_workflow") else True
 
-    # 6.1 Process VRAM Preset
-    vram_preset_val = node.knob("vram_preset").value() if node.knob("vram_preset") else "Auto (Smart Profile)"
-    if "Ultra Fast" in vram_preset_val:
+    # 6.1 Process Hann Window / VRAM Preset
+    preset_val = ""
+    if node.knob("hann_mode"):
+        preset_val = str(node.knob("hann_mode").value())
+    elif node.knob("vram_preset"):
+        preset_val = str(node.knob("vram_preset").value())
+    else:
+        preset_val = "Auto"
+
+    if "80 chunk" in preset_val or "Ultra Fast" in preset_val:
         hann_chunk = 80
         hann_stride = 40
         low_vram = False
         auto_vram = False
         stage2_batch = 2
-    elif "Balanced" in vram_preset_val:
+    elif "48 chunk" in preset_val or "High Quality" in preset_val or "Balanced" in preset_val:
         hann_chunk = 48
         hann_stride = 24
         low_vram = False
         auto_vram = False
         stage2_batch = 1
-    elif "Safe Mode" in vram_preset_val:
+    elif "24 chunk" in preset_val or "Standard Balanced" in preset_val or "Safe Mode" in preset_val:
         hann_chunk = 24
         hann_stride = 12
         low_vram = False
         auto_vram = False
         stage2_batch = 1
-    elif "Low VRAM Mode" in vram_preset_val:
+    elif "8 chunk" in preset_val or "Low VRAM" in preset_val:
         hann_chunk = 8
         hann_stride = 4
         low_vram = True
         auto_vram = False
         stage2_batch = 1
-    elif "Custom" in vram_preset_val:
+    elif "1 chunk" in preset_val or "Single Frame" in preset_val:
+        hann_chunk = 1
+        hann_stride = 1
+        low_vram = True
         auto_vram = False
+        stage2_batch = 1
+    elif "Custom" in preset_val:
+        auto_vram = False
+    elif "Auto" in preset_val:
+        auto_vram = True
+        hann_chunk = 0
+        hann_stride = 0
 
     # 6.2 Process Model Scale (Resolution Downscaling for 4K/8K Plates)
     model_scale = 1.0
@@ -831,11 +848,19 @@ def create_corridorkeyer_node():
     carry_h.setValue(True)
     group.addKnob(carry_h)
 
-    vram_p = nuke.Enumeration_Knob(
-        "vram_preset", "GPU VRAM Profile",
-        ["Auto (Smart Profile)", "Ultra Fast (24GB+ / RTX 4090, 5090)", "Balanced (16GB / RTX 4080)", "Safe Mode (12GB / RTX 3060, 4070)", "Low VRAM Mode (8GB / Laptop)", "Custom (Manual)"]
+    hann_p = nuke.Enumeration_Knob(
+        "hann_mode", "Hann Window",
+        [
+            "Auto-Detect (Recommended)",
+            "Max Continuity (80 chunk / 40 stride) — 24GB+ GPU",
+            "High Quality (48 chunk / 24 stride) — 16GB+ GPU",
+            "Standard Balanced (24 chunk / 12 stride) — 8~12GB GPU",
+            "Low VRAM (8 chunk / 4 stride) — 6~8GB GPU",
+            "Single Frame (1 chunk / 1 stride) — Lowest Peak Memory",
+            "Custom Size (Manual in VRAM tab)"
+        ]
     )
-    group.addKnob(vram_p)
+    group.addKnob(hann_p)
 
     m_scale = nuke.Enumeration_Knob(
         "model_scale", "AI Plate Scale",
@@ -919,9 +944,9 @@ def create_corridorkeyer_node():
     vram_tips = nuke.Text_Knob(
         "vram_tips", "",
         "<br><font color='#888888'><b>💡 VRAM Optimization Tips:</b><br>"
+        "• <b>Hann Window:</b> Match chunk/stride to your GPU VRAM (e.g. <i>Standard Balanced 24/12</i> for 8~12GB, <i>High Quality 48/24</i> for 16GB+).<br>"
         "• <b>4K/8K Plates:</b> Set <b>AI Plate Scale</b> to <i>0.50 Half Proxy</i> to cut VRAM by 75% and double render speed.<br>"
-        "• <b>8GB~12GB GPUs:</b> Select <i>Safe Mode</i> or <i>Low VRAM Mode</i> to prevent Out-Of-Memory errors.<br>"
-        "• <b>RTX 4090 / 5090:</b> Select <i>Ultra Fast</i> for maximum multi-frame temporal parallelism.</font>"
+        "• <b>Single Frame (1/1):</b> Lowest peak memory for emergency low VRAM rendering.</font>"
     )
     group.addKnob(vram_tips)
 
