@@ -659,6 +659,36 @@ class MaskCanvas(QWidget):
         painter.drawPoint(QPoint(cx, cy))
 
 
+def _safe_load_mask_array(path: str | Path | None) -> Optional[np.ndarray]:
+    """Safely decode mask file, correctly extracting black-and-white grayscale even from 4-channel RGBA."""
+    if not path or not Path(path).is_file():
+        return None
+    try:
+        data = np.fromfile(str(path), dtype=np.uint8)
+        if len(data) == 0:
+            return None
+        loaded = cv2.imdecode(data, cv2.IMREAD_UNCHANGED)
+        if loaded is None:
+            return None
+        if loaded.ndim == 3:
+            if loaded.shape[2] == 4:
+                alpha = loaded[:, :, 3]
+                alpha_range = int(alpha.max()) - int(alpha.min())
+                rgb_gray = cv2.cvtColor(loaded[:, :, :3], cv2.COLOR_BGR2GRAY)
+                rgb_range = int(rgb_gray.max()) - int(rgb_gray.min())
+                # If alpha is flat/opaque (e.g. Photoshop B&W PNG export with 100% alpha)
+                # but RGB has mask content:
+                if alpha_range <= 12 and rgb_range > 12:
+                    return rgb_gray.astype(np.uint8)
+                else:
+                    return alpha.astype(np.uint8)
+            else:
+                return cv2.cvtColor(loaded, cv2.COLOR_BGR2GRAY).astype(np.uint8)
+        return loaded.astype(np.uint8)
+    except Exception:
+        return None
+
+
 class BrushMaskEditorDialog(QDialog):
     """Full-featured Brush Mask Editor Dialog for CorridorKey 2.0.
 
@@ -681,20 +711,7 @@ class BrushMaskEditorDialog(QDialog):
         self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint)
 
         # Load starting mask if specified
-        starting_mask = None
-        if initial_mask_path and Path(initial_mask_path).is_file():
-            try:
-                loaded = cv2.imdecode(np.fromfile(initial_mask_path, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
-                if loaded is not None:
-                    if loaded.ndim == 3:
-                        if loaded.shape[2] == 4:
-                            starting_mask = loaded[:, :, 3]  # Alpha
-                        else:
-                            starting_mask = cv2.cvtColor(loaded, cv2.COLOR_BGR2GRAY)
-                    else:
-                        starting_mask = loaded
-            except Exception:
-                starting_mask = None
+        starting_mask = _safe_load_mask_array(initial_mask_path)
 
         # Main Layout
         root_layout = QHBoxLayout(self)
@@ -1041,13 +1058,8 @@ class BrushMaskEditorDialog(QDialog):
         )
         if path and Path(path).is_file():
             try:
-                loaded = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+                loaded = _safe_load_mask_array(path)
                 if loaded is not None:
-                    if loaded.ndim == 3:
-                        if loaded.shape[2] == 4:
-                            loaded = loaded[:, :, 3]
-                        else:
-                            loaded = cv2.cvtColor(loaded, cv2.COLOR_BGR2GRAY)
                     # Resize if size does not match
                     if loaded.shape[:2] != (self.canvas.height_img, self.canvas.width_img):
                         loaded = cv2.resize(

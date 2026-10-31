@@ -256,14 +256,20 @@ def make_arguments(source: Path, destination: Path, options: dict) -> list[str]:
     # Hints & Conditioning
     hint_mode = options.get('hint_mode')
     hint_path = options.get('hint')
-    if hint_mode and hint_path:
-        args += [hint_mode, str(hint_path)]
-        if options.get('quality') is not None:
-            args += ['--hint_quality', str(options['quality'])]
-        if options.get('carry_hint_quality') is not None:
-            args += ['--carry_hint_quality', str(options['carry_hint_quality'])]
-        if options.get('no_carry_hint'):
-            args += ['--no_carry_hint']
+    if hint_path and str(hint_path).strip():
+        h_str = str(hint_path).strip().strip('"').strip("'")
+        if os.path.exists(h_str):
+            if not hint_mode:
+                # Auto-determine hint mode if path was provided without explicit dropdown change
+                p = Path(h_str)
+                hint_mode = '--hint_video' if p.suffix.lower() in VIDEO_EXTS else '--hint_first_frame'
+            args += [hint_mode, h_str]
+            if options.get('quality') is not None:
+                args += ['--hint_quality', str(options['quality'])]
+            if options.get('carry_hint_quality') is not None:
+                args += ['--carry_hint_quality', str(options['carry_hint_quality'])]
+            if options.get('no_carry_hint'):
+                args += ['--no_carry_hint']
 
     # Hann Windows & VRAM
     hann_mode = options.get('hann_mode', 'auto')
@@ -1556,6 +1562,28 @@ class Window(QMainWindow):
         self.hint_mode.addItem(tr('mode_first_frame'), '--hint_first_frame')
         self.hint_mode.addItem(tr('mode_video_hint'), '--hint_video')
         self.hint_mode.currentIndexChanged.connect(self._on_hint_mode_changed)
+
+        def _on_hint_text_changed(txt: str):
+            clean = txt.strip().strip('"').strip("'")
+            if clean and os.path.isfile(clean):
+                self.chk_use_hint.setChecked(True)
+                p = Path(clean)
+                if p.suffix.lower() in VIDEO_EXTS:
+                    self.hint_mode.setCurrentIndex(2)
+                else:
+                    self.hint_mode.setCurrentIndex(1)
+            elif not clean:
+                self.hint_mode.setCurrentIndex(0)
+
+        self.hint.textChanged.connect(_on_hint_text_changed)
+
+        def _on_chk_hint_toggled(checked: bool):
+            if not checked:
+                self.hint_mode.setCurrentIndex(0)
+            elif self.hint.text().strip():
+                _on_hint_text_changed(self.hint.text())
+
+        self.chk_use_hint.toggled.connect(_on_chk_hint_toggled)
         self.lbl_row_hint_mode = QLabel(tr('lbl_keying_mode'))
         f_hint.addRow(self.lbl_row_hint_mode, self.hint_mode)
 
@@ -2737,6 +2765,14 @@ class Window(QMainWindow):
                 val, _ = QFileDialog.getOpenFileName(self, tr('dlg_select_file'), field.text(), 'All Files (*.*)')
             if val:
                 field.setText(val)
+                if is_hint and hasattr(self, 'hint_mode'):
+                    p = Path(val)
+                    if p.suffix.lower() in VIDEO_EXTS:
+                        self.hint_mode.setCurrentIndex(2)
+                    else:
+                        self.hint_mode.setCurrentIndex(1)
+                    if hasattr(self, 'chk_use_hint'):
+                        self.chk_use_hint.setChecked(True)
         btn.clicked.connect(select)
         row.addWidget(btn)
         return widget
@@ -3425,7 +3461,7 @@ class Window(QMainWindow):
                     clip_opts['hint_mode'] = '--hint_first_frame'
                     clip_opts['hint'] = str(f_hint.resolve())
                 elif v_hint:
-                    clip_opts['hint_mode'] = '--hint_alpha_video'
+                    clip_opts['hint_mode'] = '--hint_video'
                     clip_opts['hint'] = str(v_hint.resolve())
                 else:
                     clip_opts['hint_mode'] = ''

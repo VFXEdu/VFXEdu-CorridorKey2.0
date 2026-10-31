@@ -176,17 +176,44 @@ def read_image_rgb(path: str | os.PathLike):
 
 
 def read_hint_image(path: str | os.PathLike) -> np.ndarray:
-    img = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+    p_str = str(path)
+    # Unicode-safe image read for Windows & international paths
+    img = None
+    try:
+        data = np.fromfile(p_str, dtype=np.uint8)
+        if len(data) > 0:
+            img = cv2.imdecode(data, cv2.IMREAD_UNCHANGED)
+    except Exception:
+        pass
+    if img is None:
+        img = cv2.imread(p_str, cv2.IMREAD_UNCHANGED)
     if img is None:
         raise FileNotFoundError(path)
+
     if img.dtype == np.uint8:
         img = img.astype(np.float32) / 255.0
     elif img.dtype == np.uint16:
         img = img.astype(np.float32) / 65535.0
     else:
         img = img.astype(np.float32)
+
     if img.ndim == 3:
-        img = img[:, :, 3] if img.shape[2] == 4 else img[:, :, 0]
+        if img.shape[2] == 4:
+            alpha = img[:, :, 3]
+            alpha_range = float(alpha.max() - alpha.min())
+            # Convert BGR to Grayscale to check if black & white mask is in RGB channels
+            rgb_gray = 0.299 * img[:, :, 2] + 0.587 * img[:, :, 1] + 0.114 * img[:, :, 0]
+            rgb_range = float(rgb_gray.max() - rgb_gray.min())
+            # If alpha channel is flat/opaque (e.g. Photoshop B&W export with 100% alpha),
+            # but RGB channels have mask content (black & white):
+            if alpha_range <= 0.05 and rgb_range > 0.05:
+                img = rgb_gray
+            else:
+                img = alpha
+        else:
+            # 3-channel BGR: convert to grayscale properly using standard luma weights
+            img = 0.299 * img[:, :, 2] + 0.587 * img[:, :, 1] + 0.114 * img[:, :, 0]
+
     return np.clip(img, 0.0, 1.0)
 
 
@@ -494,7 +521,19 @@ def preprocess_hint_frame(frame_bgr, meta: dict) -> torch.Tensor:
     if frame_bgr is None:
         raise RuntimeError("hint frame decode failed")
     if frame_bgr.ndim == 3:
-        hint = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+        if frame_bgr.shape[2] == 4:
+            alpha = frame_bgr[:, :, 3]
+            alpha_range = float(alpha.max()) - float(alpha.min())
+            rgb_gray = cv2.cvtColor(frame_bgr[:, :, :3], cv2.COLOR_BGR2GRAY)
+            rgb_range = float(rgb_gray.max()) - float(rgb_gray.min())
+            if alpha_range <= 12 and rgb_range > 12:
+                hint = rgb_gray
+            else:
+                hint = alpha
+        elif frame_bgr.shape[2] == 3:
+            hint = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+        else:
+            hint = frame_bgr[:, :, 0]
     else:
         hint = frame_bgr
     if hint.dtype == np.uint8:
@@ -592,7 +631,16 @@ class SequentialHintFrameDirWindowReader:
 
     def _read_until(self, t_end: int):
         while self.next_t < t_end:
-            frame = cv2.imread(self.paths[self.next_t], cv2.IMREAD_UNCHANGED)
+            p = self.paths[self.next_t]
+            frame = None
+            try:
+                data = np.fromfile(p, dtype=np.uint8)
+                if len(data) > 0:
+                    frame = cv2.imdecode(data, cv2.IMREAD_UNCHANGED)
+            except Exception:
+                pass
+            if frame is None:
+                frame = cv2.imread(p, cv2.IMREAD_UNCHANGED)
             self.cache[self.next_t] = preprocess_hint_frame(frame, self.meta)
             self.next_t += 1
 

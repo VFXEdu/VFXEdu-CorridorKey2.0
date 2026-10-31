@@ -242,6 +242,59 @@ def main():
 
     print(f"[*] Source Media: {source_path}")
 
+    # 2.4 Detect Alpha Hint (FrameHint input pin or companion file)
+    hint_path = ""
+    hint_mode = ""
+    VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".avi", ".webm"}
+
+    try:
+        hint_inp = getattr(tool, "FrameHint", None) or tool.FindInput("FrameHint")
+        if hint_inp:
+            h_conn = hint_inp.GetConnectedOutput()
+            if h_conn:
+                h_tool = h_conn.GetTool()
+                if h_tool:
+                    clip_inp = getattr(h_tool, "Clip", None)
+                    if clip_inp is not None:
+                        try:
+                            hp = str(clip_inp[comp.CurrentTime] or "")
+                            if hp and os.path.exists(hp):
+                                hint_path = hp
+                        except Exception:
+                            pass
+                    if not hint_path:
+                        media_inp = getattr(h_tool, "MediaID", None)
+                        if media_inp is not None:
+                            try:
+                                hp = str(media_inp[comp.CurrentTime] or "")
+                                if hp and os.path.exists(hp):
+                                    hint_path = hp
+                            except Exception:
+                                pass
+    except Exception as hint_err:
+        print(f"[*] Note inspecting FrameHint input: {hint_err}")
+
+    if not hint_path and source_path:
+        src_dir = Path(source_path).parent
+        stem = Path(source_path).stem
+        candidates = [
+            src_dir / f"{stem}FrameHint.png",
+            src_dir / f"{stem}_hint.png",
+            src_dir / f"{stem}_alpha.png",
+            src_dir / f"{stem}_AlphaHint.mp4",
+            src_dir / f"{stem}_hint.mp4",
+            ck_root / "outputs" / f"{stem}FrameHint.png",
+        ]
+        for c in candidates:
+            if c.is_file():
+                hint_path = str(c.resolve())
+                break
+
+    if hint_path and os.path.exists(hint_path):
+        p = Path(hint_path)
+        hint_mode = "--hint_video" if p.suffix.lower() in VIDEO_EXTS else "--hint_first_frame"
+        print(f"[*] Detected Alpha Hint: {hint_path} ({hint_mode})")
+
     # 3. Setup output folder
     ck_root = find_corridorkey_root()
     py_exe = find_python_executable(ck_root)
@@ -286,6 +339,8 @@ def main():
         "--despill_strength", f"{args.despill:.2f}",
         "--outputs", *outputs,
     ]
+    if hint_path and hint_mode:
+        cmd.extend([hint_mode, hint_path])
     if args.low_vram:
         cmd.append("--low_vram")
 

@@ -497,15 +497,16 @@ def hann_stage1_stream(model, source, meta, *, reader_cls, reader_kind: str,
                 hint_cpu[0] = hint_reader.window(t0, t1)
                 hint_quality_cpu.fill_(float(full_hint_quality))
                 hint_present.fill_(True)
-            for j, t_abs in enumerate(range(t0, t1)):
-                if t_abs in carry_cache:
-                    hint_cpu[0, j] = carry_cache[t_abs]
-                    hint_quality_cpu[0, j] = float(carry_hint_quality)
-                    hint_present[0, j] = True
-            if initial_hint is not None and t0 == 0:
-                hint_cpu[0, 0] = initial_hint.to(dtype=hint_cpu.dtype)
-                hint_quality_cpu[0, 0] = float(initial_hint_quality)
-                hint_present[0, 0] = True
+            else:
+                for j, t_abs in enumerate(range(t0, t1)):
+                    if t_abs in carry_cache:
+                        hint_cpu[0, j] = carry_cache[t_abs]
+                        hint_quality_cpu[0, j] = float(carry_hint_quality)
+                        hint_present[0, j] = True
+                if initial_hint is not None and t0 == 0:
+                    hint_cpu[0, 0] = initial_hint.to(dtype=hint_cpu.dtype)
+                    hint_quality_cpu[0, 0] = float(initial_hint_quality)
+                    hint_present[0, 0] = True
             if not bool(hint_present.any().item()):
                 hint_quality_cpu.fill_(-1.0)
 

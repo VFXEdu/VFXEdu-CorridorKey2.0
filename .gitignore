@@ -44,3 +44,4 @@ bin/ffmpeg
 python_embed/
 dist/
 gui_config.json
+resolve/fusion/last_render_folder.txt
