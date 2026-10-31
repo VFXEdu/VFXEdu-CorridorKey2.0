@@ -175,6 +175,31 @@ def check_for_updates(current_version: str, repo: str | None = None, timeout: fl
     except Exception as e:
         result["error"] = f"Connection error: {e}"
 
+    # Also inspect master branch gui.py in case a newer code commit or tag was pushed
+    try:
+        raw_url = f"https://raw.githubusercontent.com/{repo}/master/gui.py"
+        raw_req = urllib.request.Request(
+            raw_url,
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
+        )
+        with urllib.request.urlopen(raw_req, timeout=timeout) as rresp:
+            content = rresp.read().decode("utf-8")
+            m = re.search(r'APP_VERSION\s*=\s*["\']([^"\']+)["\']', content)
+            if m:
+                latest_raw = m.group(1).strip()
+                if is_newer_version(latest_raw, result["latest_version"]):
+                    result["latest_version"] = latest_raw
+                    result["release_name"] = f"VFXEdu CorridorKey 2.0 {latest_raw} (Master Patch)"
+                    result["release_url"] = f"https://github.com/{repo}/commits/master"
+                    result["zipball_url"] = f"https://github.com/{repo}/archive/refs/heads/master.zip"
+                    result["release_notes"] = f"⚡ 최신 성능 패치 ({latest_raw})가 배포되었습니다.\n\n- 긴 영상 VRAM 파편화 방지 (expandable_segments:True)\n- 주기적 VRAM 자동 청소 (empty_cache)\n- 4K Low VRAM 자동 청크 튜닝 안정화"
+                    result["error"] = None
+                    if is_newer_version(latest_raw, current_version):
+                        result["update_available"] = True
+                    api_success = True
+    except Exception:
+        pass
+
     if api_success:
         return result
 
