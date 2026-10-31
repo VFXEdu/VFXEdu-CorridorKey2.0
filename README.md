@@ -1,4 +1,4 @@
-# ⚡ VFXEdu CorridorKey 2.0 (v0.1.3)
+# ⚡ VFXEdu CorridorKey 2.0 (v0.1.4)
 ### Professional VFX Workbench Desktop Suite & Zero-Install Portable Keyer
 
 [![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-e5a93c.svg)](LICENSE)
