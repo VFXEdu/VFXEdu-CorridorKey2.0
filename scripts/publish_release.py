@@ -168,6 +168,7 @@ def main():
     ap.add_argument("--tag", default=None, help="Release tag (defaults to version in gui.py)")
     ap.add_argument("--token", default=None, help="GitHub Personal Access Token")
     ap.add_argument("--repo", default=None, help="GitHub repository in 'owner/repo' format")
+    ap.add_argument("--notes", default=None, help="Custom release notes / changelog text")
     ap.add_argument("--git-push", action="store_true", help="Also push git commit and tag")
     args = ap.parse_args()
 
@@ -208,6 +209,21 @@ def main():
     # 3. Check / Prompt Token
     token = args.token or os.environ.get("GITHUB_TOKEN")
     if not token:
+        try:
+            cred_proc = subprocess.run(
+                ["git", "credential", "fill"],
+                input="protocol=https\nhost=github.com\n",
+                text=True,
+                capture_output=True,
+            )
+            for line in cred_proc.stdout.splitlines():
+                if line.startswith("password="):
+                    token = line.split("=", 1)[1].strip()
+                    break
+        except Exception:
+            pass
+
+    if not token:
         print("\n[?] GitHub Personal Access Token is required to publish releases.")
         print("    (Create one at https://github.com/settings/tokens with 'repo' scope)")
         token = input("    Enter GitHub Token: ").strip()
@@ -220,21 +236,32 @@ def main():
     if args.git_push:
         git_tag_and_push(tag)
 
-    # 5. Create Release
+    # 5. Create Release with clean changelog
     release_name = f"VFXEdu CorridorKey 2.0 {tag}"
-    release_body = f"""## ⚡ VFXEdu CorridorKey 2.0 ({tag}) Portable Release
+    if getattr(args, "notes", None):
+        changelog = args.notes
+    else:
+        try:
+            prev_tag_res = subprocess.run(
+                ["git", "describe", "--tags", "--abbrev=0", "HEAD~1"],
+                capture_output=True, text=True, cwd=ROOT
+            )
+            prev_tag = prev_tag_res.stdout.strip()
+            log_range = f"{prev_tag}..HEAD" if prev_tag else "HEAD~10..HEAD"
+            log_res = subprocess.run(
+                ["git", "log", log_range, "--pretty=format:- %s (%h)"],
+                capture_output=True, text=True, cwd=ROOT
+            )
+            commits = log_res.stdout.strip()
+            changelog = f"### 🚀 주요 업데이트 내역 ({tag})\n\n{commits}"
+        except Exception:
+            changelog = f"⚡ VFXEdu CorridorKey 2.0 {tag} 최신 업데이트 릴리즈"
 
-### 📦 특징 (Features)
-- **완전 무설치 (Zero Prerequisites)**: Python 및 FFmpeg 사전 설치 불필요.
-- **하이브리드 포터블 배포본 (~95 MB)**: 가벼운 배포 압축 파일로 다운로드가 빠름.
-- **원클릭 자동 설정**: 압축 해제 후 `Setup_GUI.bat` 1회 실행으로 PyTorch(CUDA 12.8) 자동 구성.
-- **VFX Workbench UI**: 실시간 GPU 점유율 모니터링, 와이프(Wipe) 비교, 브러시 마스크 편집기 탑재.
+    release_body = f"""## ⚡ VFXEdu CorridorKey 2.0 {tag} Update
 
-### 🚀 설치 및 실행 방법
-1. 아래 Assets에서 `CorridorKeyer2.0_Portable_Setup.zip`을 다운로드합니다.
-2. 원하는 폴더에 압축을 풉니다.
-3. `Setup_GUI.bat`를 더블 클릭하여 초기 환경 설정을 진행합니다.
-4. `Launch_GUI.bat`를 더블 클릭하여 앱을 실행합니다.
+{changelog}
+
+> 기존 사용자는 `Update.bat` 실행 또는 GUI 화면에서 **[Update Now]**를 누르면 5~10초 만에 최신 코드로 자동 패치됩니다.
 """
     print(f"\n[*] Creating GitHub Release '{release_name}' on {owner}/{repo}...")
     release = create_github_release_api(
