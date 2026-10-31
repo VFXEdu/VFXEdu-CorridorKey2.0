@@ -637,6 +637,31 @@ class UpdateDialog(QDialog):
         self.btn_check_again.clicked.connect(self._start_check)
         btn_box.addWidget(self.btn_check_again)
 
+        self.btn_sync_master = QPushButton(tr("updater_btn_sync_master"))
+        self.btn_sync_master.setStyleSheet("""
+            QPushButton {
+                background: #1e2430;
+                border: 1px solid #0284c7;
+                border-radius: 4px;
+                color: #38bdf8;
+                font-size: 11px;
+                font-weight: 600;
+                padding: 6px 14px;
+            }
+            QPushButton:hover {
+                background: #0369a1;
+                color: #ffffff;
+            }
+            QPushButton:disabled {
+                background: #1e293b;
+                border-color: #334155;
+                color: #64748b;
+            }
+        """)
+        self.btn_sync_master.setToolTip("버전 번호 변경 없이도 GitHub master 브랜치의 최신 코드를 즉시 동기화합니다.")
+        self.btn_sync_master.clicked.connect(lambda: self._start_apply(force_master=True))
+        btn_box.addWidget(self.btn_sync_master)
+
         self.btn_apply = QPushButton(tr("updater_btn_apply"))
         self.btn_apply.setStyleSheet("""
             QPushButton {
@@ -690,6 +715,7 @@ class UpdateDialog(QDialog):
         self.lbl_status_badge.setStyleSheet("font-size:13px; font-weight:bold; color:#38bdf8;")
         self.lbl_version_detail.setText(tr("updater_current_version", version=APP_VERSION))
         self.btn_apply.setEnabled(False)
+        self.btn_sync_master.setEnabled(False)
         self.btn_check_again.setEnabled(False)
         self.text_notes.setPlainText("")
 
@@ -700,6 +726,7 @@ class UpdateDialog(QDialog):
     def _on_check_finished(self, info: dict):
         self.info = info
         self.btn_check_again.setEnabled(True)
+        self.btn_sync_master.setEnabled(True)
         self._display_info(info)
 
     def _display_info(self, info: dict):
@@ -724,9 +751,10 @@ class UpdateDialog(QDialog):
             self.btn_apply.setEnabled(False)
             self.text_notes.setPlainText(info.get("release_notes") or f"Current version {APP_VERSION} is the latest release.")
 
-    def _start_apply(self):
-        zip_url = self.info.get("zipball_url")
+    def _start_apply(self, force_master: bool = False):
+        zip_url = None if force_master else self.info.get("zipball_url")
         self.btn_apply.setEnabled(False)
+        self.btn_sync_master.setEnabled(False)
         self.btn_check_again.setEnabled(False)
         self.btn_close.setEnabled(False)
         self.progress_bar.setValue(0)
@@ -746,6 +774,7 @@ class UpdateDialog(QDialog):
     def _on_apply_finished(self, ok: bool, msg: str):
         self.btn_close.setEnabled(True)
         self.btn_check_again.setEnabled(True)
+        self.btn_sync_master.setEnabled(True)
         if ok:
             self.progress_bar.setValue(100)
             self.lbl_prog_status.setText(msg)

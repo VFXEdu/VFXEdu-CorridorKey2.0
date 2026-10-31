@@ -410,16 +410,16 @@ def main():
         print(f"[*] You are up to date! ({APP_VERSION})")
 
     if args.apply:
-        if info["update_available"] or not info["error"]:
-            print("[*] Applying fast incremental update...")
-            ok, msg = apply_code_update(zip_url=info.get("zipball_url"), repo=repo)
-            print(f"[*] Result: {msg}")
-            if ok:
-                print("\n[SUCCESS] Update applied! You may now launch CorridorKeyer 2.0.")
-            else:
-                sys.exit(1)
+        # If there is a newer formal release, use its tag zipball;
+        # otherwise (same version or rolling commits), synchronize with live master.zip
+        target_zip = info.get("zipball_url") if info.get("update_available") else None
+        print("[*] Applying fast incremental code update (synchronizing with GitHub master)...")
+        ok, msg = apply_code_update(zip_url=target_zip, repo=repo)
+        print(f"[*] Result: {msg}")
+        if ok:
+            print("\n[SUCCESS] Update applied! You may now launch CorridorKeyer 2.0.")
         else:
-            print("[-] Cannot apply update due to check error.")
+            sys.exit(1)
 
 
 if __name__ == "__main__":
