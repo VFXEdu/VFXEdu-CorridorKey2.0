@@ -245,6 +245,9 @@ class InferenceWorker(QtCore.QThread):
 
     def run(self):
         try:
+            proc_env = os.environ.copy()
+            proc_env["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+            proc_env["PYTHONUTF8"] = "1"
             self.proc = subprocess.Popen(
                 self.cmd,
                 stdout=subprocess.PIPE,
@@ -252,6 +255,7 @@ class InferenceWorker(QtCore.QThread):
                 text=True,
                 bufsize=1,
                 cwd=str(self.ck_root),
+                env=proc_env,
             )
 
             prog_regex = re.compile(r"(\d+)/(\d+)")

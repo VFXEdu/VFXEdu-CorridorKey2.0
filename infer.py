@@ -3,7 +3,15 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 import tempfile
+
+# Prevent PyTorch CUDA memory fragmentation on long video footage
+_alloc_conf = os.environ.get("PYTORCH_CUDA_ALLOC_CONF", "")
+if not _alloc_conf:
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+elif "expandable_segments" not in _alloc_conf:
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = f"{_alloc_conf},expandable_segments:True"
 
 os.environ["HF_HUB_OFFLINE"] = "1"
 os.environ["TRANSFORMERS_OFFLINE"] = "1"
@@ -176,8 +184,9 @@ def main():
         threads=args.ffmpeg_threads,
     )
     # With no explicit memory settings, pick them per clip from free GPU memory.
-    auto_vram = args.hann_chunk is None and args.hann_stride is None and not args.low_vram
-    hann_chunk = args.hann_chunk if args.hann_chunk is not None else 80
+    # If --low_vram is passed, auto_vram still optimizes chunk size safely within low-VRAM profiles.
+    auto_vram = args.hann_chunk is None and args.hann_stride is None
+    hann_chunk = args.hann_chunk if args.hann_chunk is not None else (8 if args.low_vram else 80)
     hann_stride = args.hann_stride if args.hann_stride is not None else max(1, hann_chunk // 2)
     infer_cfg = InferenceConfig(
         hann_chunk=hann_chunk,

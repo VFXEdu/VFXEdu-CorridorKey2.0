@@ -293,7 +293,10 @@ def main():
     print(f"    Command: {' '.join(cmd)}\n")
     update_status(tool, "🚀 GPU AI Running...")
 
-    # 6. Execute process
+    # 6. Execute process with memory fragmentation protection
+    proc_env = os.environ.copy()
+    proc_env["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+    proc_env["PYTHONUTF8"] = "1"
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
@@ -301,6 +304,7 @@ def main():
         text=True,
         bufsize=1,
         cwd=str(ck_root),
+        env=proc_env,
     )
 
     prog_regex = re.compile(r"(\d+)/(\d+)")

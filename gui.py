@@ -21,6 +21,13 @@ import re
 import shutil
 import sys
 
+# Prevent PyTorch CUDA memory fragmentation
+_alloc_conf = os.environ.get("PYTORCH_CUDA_ALLOC_CONF", "")
+if not _alloc_conf:
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+elif "expandable_segments" not in _alloc_conf:
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = f"{_alloc_conf},expandable_segments:True"
+
 # ---------------------------------------------------------------------------
 # Python 3.12 compatibility shim (PEP 632 removed distutils)
 # C-RADIOv4-SO400M imports `from distutils.version import LooseVersion`.
@@ -3031,6 +3038,7 @@ class Window(QMainWindow):
         env.insert('PYTHONIOENCODING', 'utf-8')
         env.insert('OPENCV_IO_ENABLE_OPENEXR', '1')
         env.insert('HF_HOME', str(ROOT / 'tmp' / 'huggingface'))
+        env.insert('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
         self.proc.setProcessEnvironment(env)
         self.proc.setWorkingDirectory(str(ROOT))
         self.busy(True)

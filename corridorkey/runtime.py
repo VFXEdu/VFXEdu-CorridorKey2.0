@@ -169,7 +169,7 @@ def estimate_peak_vram_gb(megapixels: float, frames: int, low_vram: bool) -> flo
     return _interp(frames, zip(chunks, per_chunk))
 
 
-def select_vram_profile(shape_hw, num_frames: int, budget_gb: float):
+def select_vram_profile(shape_hw, num_frames: int, budget_gb: float, force_low_vram: bool = False):
     """Largest Hann window that fits `budget_gb`, as (chunk, stride, low_vram, estimate).
 
     Bigger windows give better temporal consistency, and low-VRAM mode is
@@ -177,8 +177,9 @@ def select_vram_profile(shape_hw, num_frames: int, budget_gb: float):
     Falls back to a single-frame window when nothing is estimated to fit.
     """
     megapixels = shape_hw[0] * shape_hw[1] / 1e6
+    low_vram_options = (True,) if force_low_vram else (False, True)
     for chunk in reversed(_VRAM_PEAK_GB[True][0]):
-        for low_vram in (False, True):
+        for low_vram in low_vram_options:
             if chunk not in _VRAM_PEAK_GB[low_vram][0]:
                 continue
             estimate = estimate_peak_vram_gb(megapixels, min(chunk, num_frames), low_vram)
@@ -191,7 +192,9 @@ def apply_auto_vram(cfg: InferenceConfig, shape_hw, num_frames: int) -> None:
     free_bytes, _ = torch.cuda.mem_get_info()
     # Memory this process already holds (the loaded model) is part of the budget.
     budget_gb = (free_bytes + torch.cuda.memory_reserved()) / 2**30
-    chunk, stride, low_vram, estimate = select_vram_profile(shape_hw, num_frames, budget_gb)
+    chunk, stride, low_vram, estimate = select_vram_profile(
+        shape_hw, num_frames, budget_gb, force_low_vram=cfg.low_vram
+    )
     cfg.hann_chunk, cfg.hann_stride, cfg.low_vram = chunk, stride, low_vram
     print(f"  Auto VRAM: {budget_gb:.1f} GB available at {shape_hw[1]}x{shape_hw[0]} -> "
           f"hann_chunk={chunk}, hann_stride={stride}, low_vram={low_vram} "
@@ -202,6 +205,13 @@ def apply_auto_vram(cfg: InferenceConfig, shape_hw, num_frames: int) -> None:
 
 
 def prepare_runtime_environment(paths: RuntimePaths) -> None:
+    # Ensure expandable_segments is set to prevent memory fragmentation
+    alloc_conf = os.environ.get("PYTORCH_CUDA_ALLOC_CONF", "")
+    if not alloc_conf:
+        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+    elif "expandable_segments" not in alloc_conf:
+        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = f"{alloc_conf},expandable_segments:True"
+
     os.environ.setdefault("HF_HUB_OFFLINE", "1")
     os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
     moge_root = paths.package_root / "third_party/MoGe"
@@ -564,6 +574,9 @@ def hann_stage1_stream(model, source, meta, *, reader_cls, reader_kind: str,
             del rgb_c, hint_c, hint_quality_c, hint_cpu, hint_quality_cpu
             del model_chunk, display_chunk, review_chunk
             flush_before(next_start)
+            # Automatic memory purge to prevent VRAM fragmentation during long footage
+            if (i + 1) % 4 == 0 or (i + 1) == len(starts):
+                torch.cuda.empty_cache()
             print(f"      window {i + 1}/{len(starts)} [{t0}:{t1}]", flush=True)
         torch.cuda.synchronize()
         flush_before(T_all + 1)
@@ -873,8 +886,10 @@ def run_inference(model, input_path: str, output_dir: str, cfg: InferenceConfig,
             torch.cuda.empty_cache()
 
         stage2_batch = max(1, int(cfg.stage2_batch))
+        _stage2_counter = 0
 
         def write_prediction_batches(items):
+            nonlocal _stage2_counter
             device = next(model.stage2.parameters()).device
             for offset in range(0, len(items), stage2_batch):
                 sub = items[offset:offset + stage2_batch]
@@ -893,6 +908,10 @@ def run_inference(model, input_path: str, output_dir: str, cfg: InferenceConfig,
                 for name, frames in rendered.items():
                     writers[name].write_many(frames)
                 del logits, baton_t, rgb_t, baton_np, rendered
+                _stage2_counter += len(sub)
+                if _stage2_counter >= 32:
+                    _stage2_counter = 0
+                    torch.cuda.empty_cache()
 
         hann_stage1_stream(
             model, input_path, meta, reader_cls=reader_cls,

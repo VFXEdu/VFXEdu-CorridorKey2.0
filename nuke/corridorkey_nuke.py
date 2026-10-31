@@ -344,6 +344,9 @@ def execute_keyer(node) -> bool:
             progress_task.setMessage("Initializing GPU AI models...")
             progress_task.setProgress(5)
 
+        proc_env = os.environ.copy()
+        proc_env["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+        proc_env["PYTHONUTF8"] = "1"
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -351,6 +354,7 @@ def execute_keyer(node) -> bool:
             text=True,
             bufsize=1,
             cwd=str(ck_root),
+            env=proc_env,
         )
 
         prog_regex = re.compile(r"(\d+)/(\d+)")
