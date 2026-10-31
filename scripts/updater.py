@@ -352,20 +352,25 @@ def apply_code_update(
             except Exception as copy_err:
                 print(f"[Warning] Could not update {rel_path}: {copy_err}")
 
-        # Auto-refresh DaVinci Resolve Fuse and Nuke if integrations exist
+        # Auto-refresh DaVinci Resolve Fuse and Nuke integrations automatically
+        synced_integrations = []
         try:
             from scripts.install_resolve import install as install_resolve
-            install_resolve(target_dir)
-        except Exception:
-            pass
+            if install_resolve(target_dir):
+                synced_integrations.append("DaVinci Resolve")
+        except Exception as e:
+            print(f"[Warning] Resolve auto-sync: {e}")
 
         try:
             from scripts.install_nuke import get_nuke_dir, install as install_nuke
-            nuke_init = get_nuke_dir() / "init.py"
-            if nuke_init.is_file():
-                install_nuke(target_dir)
-        except Exception:
-            pass
+            nuke_dir = get_nuke_dir()
+            if nuke_dir.is_dir():
+                if install_nuke(target_dir):
+                    synced_integrations.append("Foundry Nuke")
+        except Exception as e:
+            print(f"[Warning] Nuke auto-sync: {e}")
+
+        sync_note = f"\n- 연동 자동 동기화: {', '.join(synced_integrations)}" if synced_integrations else ""
 
         if progress_callback:
             progress_callback(100, f"Update complete! ({updated_count} files updated)")
@@ -373,7 +378,7 @@ def apply_code_update(
         # Cleanup staging
         shutil.rmtree(staging_dir, ignore_errors=True)
 
-        return True, f"Successfully updated {updated_count} files from GitHub."
+        return True, f"Successfully updated {updated_count} files from GitHub.{sync_note}"
 
     except Exception as exc:
         shutil.rmtree(staging_dir, ignore_errors=True)
