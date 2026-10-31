@@ -132,6 +132,8 @@ def build_command_args(
     carry_hint: bool = True,
     hint_quality: float = 0.95,
     linear_workflow: bool = True,
+    model_scale: float = 1.0,
+    stage2_batch: int = 1,
 ) -> list[str]:
     """Construct CLI arguments for CorridorKey infer.py."""
     infer_py = ck_root / "infer.py"
@@ -147,6 +149,12 @@ def build_command_args(
         "--exr_dtype", str(exr_dtype),
         "--despill_strength", f"{float(despill_strength):.2f}",
     ]
+
+    if float(model_scale) != 1.0:
+        cmd.extend(["--model_scale", f"{float(model_scale):.2f}"])
+
+    if int(stage2_batch) > 1:
+        cmd.extend(["--stage2_batch", str(int(stage2_batch))])
 
     if outputs:
         cmd.extend(["--outputs"] + list(outputs))
@@ -398,9 +406,51 @@ def execute_keyer(node, preview_single_frame: bool = False) -> bool:
     low_vram = bool(node.knob("low_vram").value()) if node.knob("low_vram") else False
     hann_chunk = int(node.knob("hann_chunk").value()) if node.knob("hann_chunk") else 0
     hann_stride = int(node.knob("hann_stride").value()) if node.knob("hann_stride") else 0
+    stage2_batch = int(node.knob("stage2_batch").value()) if node.knob("stage2_batch") else 1
     carry_hint = bool(node.knob("carry_hint").value()) if node.knob("carry_hint") else True
     hint_quality = float(node.knob("hint_quality").value()) if node.knob("hint_quality") else 0.95
     linear_wf = bool(node.knob("linear_workflow").value()) if node.knob("linear_workflow") else True
+
+    # 6.1 Process VRAM Preset
+    vram_preset_val = node.knob("vram_preset").value() if node.knob("vram_preset") else "Auto (Smart Profile)"
+    if "Ultra Fast" in vram_preset_val:
+        hann_chunk = 80
+        hann_stride = 40
+        low_vram = False
+        auto_vram = False
+        stage2_batch = 2
+    elif "Balanced" in vram_preset_val:
+        hann_chunk = 48
+        hann_stride = 24
+        low_vram = False
+        auto_vram = False
+        stage2_batch = 1
+    elif "Safe Mode" in vram_preset_val:
+        hann_chunk = 24
+        hann_stride = 12
+        low_vram = False
+        auto_vram = False
+        stage2_batch = 1
+    elif "Low VRAM Mode" in vram_preset_val:
+        hann_chunk = 8
+        hann_stride = 4
+        low_vram = True
+        auto_vram = False
+        stage2_batch = 1
+    elif "Custom" in vram_preset_val:
+        auto_vram = False
+
+    # 6.2 Process Model Scale (Resolution Downscaling for 4K/8K Plates)
+    model_scale = 1.0
+    scale_val = str(node.knob("model_scale").value() if node.knob("model_scale") else "1.0")
+    if "0.75" in scale_val:
+        model_scale = 0.75
+    elif "0.50" in scale_val or "0.5" in scale_val:
+        model_scale = 0.50
+    elif "0.25" in scale_val:
+        model_scale = 0.25
+    elif node.knob("custom_scale") and float(node.knob("custom_scale").value()) != 1.0:
+        model_scale = float(node.knob("custom_scale").value())
 
     # 7. Build CLI command
     cmd = build_command_args(
@@ -421,6 +471,8 @@ def execute_keyer(node, preview_single_frame: bool = False) -> bool:
         carry_hint=carry_hint,
         hint_quality=hint_quality,
         linear_workflow=linear_wf,
+        model_scale=model_scale,
+        stage2_batch=stage2_batch,
     )
 
     print(f"[CorridorKey] Executing Command:\n{' '.join(cmd)}")
@@ -779,21 +831,17 @@ def create_corridorkeyer_node():
     carry_h.setValue(True)
     group.addKnob(carry_h)
 
-    auto_v = nuke.Boolean_Knob("auto_vram", "Auto VRAM Profiling")
-    auto_v.setValue(True)
-    group.addKnob(auto_v)
+    vram_p = nuke.Enumeration_Knob(
+        "vram_preset", "GPU VRAM Profile",
+        ["Auto (Smart Profile)", "Ultra Fast (24GB+ / RTX 4090, 5090)", "Balanced (16GB / RTX 4080)", "Safe Mode (12GB / RTX 3060, 4070)", "Low VRAM Mode (8GB / Laptop)", "Custom (Manual)"]
+    )
+    group.addKnob(vram_p)
 
-    low_v = nuke.Boolean_Knob("low_vram", "Force Low VRAM Mode")
-    low_v.setValue(False)
-    group.addKnob(low_v)
-
-    h_chunk = nuke.Int_Knob("hann_chunk", "Hann Chunk (Frames)")
-    h_chunk.setValue(80)
-    group.addKnob(h_chunk)
-
-    h_stride = nuke.Int_Knob("hann_stride", "Hann Stride (Frames)")
-    h_stride.setValue(40)
-    group.addKnob(h_stride)
+    m_scale = nuke.Enumeration_Knob(
+        "model_scale", "AI Plate Scale",
+        ["1.0 (Full Native Resolution)", "0.75 (High Quality Scale)", "0.50 (Half Proxy - 4K Recommended)", "0.25 (Quarter Proxy - 8K Recommended)"]
+    )
+    group.addKnob(m_scale)
 
     lin_wf = nuke.Boolean_Knob("linear_workflow", "Scene-Linear HDR Workflow")
     lin_wf.setValue(True)
@@ -836,6 +884,46 @@ def create_corridorkeyer_node():
     open_f = nuke.Boolean_Knob("open_folder", "Open Output Folder on Finish")
     open_f.setValue(False)
     group.addKnob(open_f)
+
+    tab_perf = nuke.Tab_Knob("tab_perf", "VRAM & Performance")
+    group.addKnob(tab_perf)
+
+    perf_title = nuke.Text_Knob("perf_title", "", "<font size='3' color='#00d2ff'><b>⚙️ GPU VRAM & Performance Tuning</b></font>")
+    group.addKnob(perf_title)
+
+    auto_v = nuke.Boolean_Knob("auto_vram", "Auto VRAM Profiling")
+    auto_v.setValue(True)
+    group.addKnob(auto_v)
+
+    low_v = nuke.Boolean_Knob("low_vram", "Force Low VRAM Mode (Hybrid Offload)")
+    low_v.setValue(False)
+    group.addKnob(low_v)
+
+    h_chunk = nuke.Int_Knob("hann_chunk", "Hann Chunk (Frames)")
+    h_chunk.setValue(80)
+    group.addKnob(h_chunk)
+
+    h_stride = nuke.Int_Knob("hann_stride", "Hann Stride (Frames)")
+    h_stride.setValue(40)
+    group.addKnob(h_stride)
+
+    s2_b = nuke.Int_Knob("stage2_batch", "Stage 2 Batch Size")
+    s2_b.setValue(1)
+    group.addKnob(s2_b)
+
+    c_scale = nuke.Double_Knob("custom_scale", "Custom Model Scale")
+    c_scale.setRange(0.1, 1.0)
+    c_scale.setValue(1.0)
+    group.addKnob(c_scale)
+
+    vram_tips = nuke.Text_Knob(
+        "vram_tips", "",
+        "<br><font color='#888888'><b>💡 VRAM Optimization Tips:</b><br>"
+        "• <b>4K/8K Plates:</b> Set <b>AI Plate Scale</b> to <i>0.50 Half Proxy</i> to cut VRAM by 75% and double render speed.<br>"
+        "• <b>8GB~12GB GPUs:</b> Select <i>Safe Mode</i> or <i>Low VRAM Mode</i> to prevent Out-Of-Memory errors.<br>"
+        "• <b>RTX 4090 / 5090:</b> Select <i>Ultra Fast</i> for maximum multi-frame temporal parallelism.</font>"
+    )
+    group.addKnob(vram_tips)
 
     tab_sys = nuke.Tab_Knob("tab_sys", "System / Paths")
     group.addKnob(tab_sys)

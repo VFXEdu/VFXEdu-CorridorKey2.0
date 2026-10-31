@@ -32,13 +32,8 @@ Gizmo {
  addUserKnob {4 hint_mode l "Hint Conditioning Mode" M {"First Frame Only (Fast)" "Full Animated Sequence (Roto)"}}
  addUserKnob {6 carry_hint l "Carry Hint to Long Clip" +STARTLINE}
  carry_hint true
- addUserKnob {6 auto_vram l "Auto VRAM Profiling" +STARTLINE}
- auto_vram true
- addUserKnob {6 low_vram l "Force Low VRAM Mode" +STARTLINE}
- addUserKnob {3 hann_chunk l "Hann Chunk (Frames)"}
- hann_chunk 80
- addUserKnob {3 hann_stride l "Hann Stride (Frames)"}
- hann_stride 40
+ addUserKnob {4 vram_preset l "GPU VRAM Profile" t "Optimization preset based on your graphics card memory" M {"Auto (Smart Profile)" "Ultra Fast (24GB+ / RTX 4090, 5090)" "Balanced (16GB / RTX 4080)" "Safe Mode (12GB / RTX 3060, 4070)" "Low VRAM Mode (8GB / Laptop)" "Custom (Manual)"}}
+ addUserKnob {4 model_scale l "AI Plate Scale" t "Downscale input plate before AI inference. Greatly saves VRAM on 4K/8K plates" M {"1.0 (Full Native Resolution)" "0.75 (High Quality Scale)" "0.50 (Half Proxy - 4K Recommended)" "0.25 (Quarter Proxy - 8K Recommended)"}}
  addUserKnob {6 linear_workflow l "Scene-Linear HDR Workflow" +STARTLINE}
  linear_workflow true
  addUserKnob {20 grp_param_end l "" n -1}
@@ -54,6 +49,21 @@ Gizmo {
  addUserKnob {20 grp_edge_end l "" n -1}
  addUserKnob {4 import_to_dag l "DAG Integration" M {Both "Update Gizmo Output" "Create Read Nodes in DAG"}}
  addUserKnob {6 open_folder l "Open Output Folder on Finish" +STARTLINE}
+ addUserKnob {20 tab_perf l "VRAM & Performance"}
+ addUserKnob {26 perf_title l "" +STARTLINE T "<font size='3' color='#00d2ff'><b>⚙️ GPU VRAM & Performance Tuning</b></font>"}
+ addUserKnob {6 auto_vram l "Auto VRAM Profiling" +STARTLINE}
+ auto_vram true
+ addUserKnob {6 low_vram l "Force Low VRAM Mode (Hybrid Offload)" +STARTLINE}
+ low_vram false
+ addUserKnob {3 hann_chunk l "Hann Chunk (Frames)"}
+ hann_chunk 80
+ addUserKnob {3 hann_stride l "Hann Stride (Frames)"}
+ hann_stride 40
+ addUserKnob {3 stage2_batch l "Stage 2 Batch Size"}
+ stage2_batch 1
+ addUserKnob {7 custom_scale l "Custom Model Scale" R 0.1 1}
+ custom_scale 1
+ addUserKnob {26 vram_tips l "" +STARTLINE T "<br><font color='#888888'><b>💡 VRAM Optimization Tips:</b><br>• <b>4K/8K Plates:</b> Set <b>AI Plate Scale</b> to <i>0.50 Half Proxy</i> to cut VRAM by 75% and double render speed.<br>• <b>8GB~12GB GPUs:</b> Select <i>Safe Mode</i> or <i>Low VRAM Mode</i> to prevent Out-Of-Memory errors.<br>• <b>RTX 4090 / 5090:</b> Select <i>Ultra Fast</i> for maximum multi-frame temporal parallelism.</font>"}
  addUserKnob {20 tab_sys l "System / Paths"}
  addUserKnob {2 ck_root l "CorridorKey Root"}
  addUserKnob {2 python_path l "Python Executable"}

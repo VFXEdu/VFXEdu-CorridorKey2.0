@@ -85,6 +85,8 @@ class TestNukeBridge(unittest.TestCase):
                 carry_hint=False,
                 hint_quality=0.90,
                 linear_workflow=False,
+                model_scale=0.50,
+                stage2_batch=2,
             )
 
             self.assertIn("--low_vram", cmd)
@@ -96,6 +98,10 @@ class TestNukeBridge(unittest.TestCase):
             self.assertIn(str(dummy_hint), cmd)
             self.assertIn("--no_carry_hint", cmd)
             self.assertIn("0.90", cmd)
+            self.assertIn("--model_scale", cmd)
+            self.assertIn("0.50", cmd)
+            self.assertIn("--stage2_batch", cmd)
+            self.assertIn("2", cmd)
             self.assertNotIn("--frame_dir_linear", cmd)
         finally:
             if dummy_hint.exists():
