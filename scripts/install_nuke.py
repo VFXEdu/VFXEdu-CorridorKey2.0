@@ -55,6 +55,18 @@ def install(repo_root: Path) -> bool:
 
     init_file.write_text(new_content, encoding="utf-8")
 
+    # If user previously placed direct copies of CorridorKeyer files into ~/.nuke, update them too
+    import shutil
+    for fname in ["CorridorKeyer.gizmo", "corridorkey_nuke.py", "menu.py"]:
+        dest = nuke_dir / fname
+        src = nuke_plugin_dir / fname
+        if dest.is_file() and src.is_file():
+            try:
+                shutil.copy2(src, dest)
+                print(f"[*] Updated existing file in ~/.nuke: {fname}")
+            except Exception as e:
+                print(f"[Warning] Could not update {dest}: {e}")
+
     print("\n" + "=" * 65)
     print(" [SUCCESS] CorridorKey 2.0 has been successfully linked to Nuke!")
     print("=" * 65)
