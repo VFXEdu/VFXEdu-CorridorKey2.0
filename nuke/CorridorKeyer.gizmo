@@ -1,7 +1,7 @@
 #! C:/Program Files/Nuke/Nuke.exe -nx
 version 14.0 v1
 Gizmo {
- inputs 4
+ inputs 2
  tile_color 0x1a4a6eff
  note_font "Verdana Bold"
  note_font_color 0xffffffff
@@ -32,6 +32,7 @@ Gizmo {
  addUserKnob {4 hint_mode l "Hint Conditioning Mode" M {"First Frame Only (Fast)" "Full Animated Sequence (Roto)"}}
  addUserKnob {6 carry_hint l "Carry Hint to Long Clip" +STARTLINE}
  carry_hint true
+ addUserKnob {4 vram_preset l "GPU VRAM Profile" t "Target GPU hardware memory profile" M {"Auto (Smart Profile)" "24GB+ (RTX 4090, 5090)" "16GB (RTX 4080)" "12GB (RTX 3060, 4070)" "8GB (Laptop / Low VRAM)" "Custom (Use Hann Window below)"}}
  addUserKnob {4 hann_mode l "Hann Window" t "Temporal chunk and stride preset for GPU memory optimization" M {"Auto-Detect (Recommended)" "Max Continuity (80 chunk / 40 stride) — 24GB+ GPU" "High Quality (48 chunk / 24 stride) — 16GB+ GPU" "Standard Balanced (24 chunk / 12 stride) — 8~12GB GPU" "Low VRAM (8 chunk / 4 stride) — 6~8GB GPU" "Single Frame (1 chunk / 1 stride) — Lowest Peak Memory" "Custom Size (Manual in VRAM tab)"}}
  addUserKnob {4 model_scale l "AI Plate Scale" t "Downscale input plate before AI inference. Greatly saves VRAM on 4K/8K plates" M {"1.0 (Full Native Resolution)" "0.75 (High Quality Scale)" "0.50 (Half Proxy - 4K Recommended)" "0.25 (Quarter Proxy - 8K Recommended)"}}
  addUserKnob {6 linear_workflow l "Scene-Linear HDR Workflow" +STARTLINE}
@@ -79,20 +80,6 @@ Gizmo {
   name FrameHint
   number 1
   xpos 200
-  ypos 0
- }
- Input {
-  inputs 0
-  name GarbageMatte
-  number 2
-  xpos 400
-  ypos 0
- }
- Input {
-  inputs 0
-  name CoreMatte
-  number 3
-  xpos 600
   ypos 0
  }
  Read {

@@ -13,14 +13,18 @@ The Foundry **Nuke(누크)**와 **CorridorKey 2.0**을 연결하는 전용 기�
    - 전체 시퀀스를 돌리기 전에 현재 타임라인 프레임 1장만 **3~5초 만에 빠른 테스트 렌더링**하여 키 품질을 즉시 점검할 수 있습니다.
 3. **애니메이션 Roto 시퀀스 힌트 지원**:
    - 첫 프레임 단일 힌트뿐만 아니라, 움직이는 **Full Animated Sequence (Roto)**를 연결하여 샷 전체에 걸친 정밀한 가이드 키잉이 가능합니다.
-4. **Garbage Matte 및 Core Matte 입력 지원**:
-   - Input 2 (`GarbageMatte`): 그린스크린 외곽 마이크, 조명 스탠드, 트래킹 마커 영역을 자동 컷아웃
-   - Input 3 (`CoreMatte`): 인물 몸통 구멍 뚫림 방지용 고정 홀드아웃 지원
-5. **내장 매트 엣지 후처리 (`Matte & Edge Refine`)**:
+4. **직관적인 2-포트 구조 (`Source` & `FrameHint`)**:
+   - `Source` (Input 0): 키잉할 원본 비디오 또는 이미지 시퀀스 플레이트
+   - `FrameHint` (Input 1): 첫 프레임 단일 힌트 또는 시퀀스 로토 마스크 (선택 사항)
+   - 불필요한 가비지/코어 인풋을 걷어내어 DAG 노드 트리를 극도로 깔끔하게 유지합니다.
+5. **GPU VRAM 프로필 및 Hann Window 프리셋 탑재**:
+   - 24GB, 16GB, 12GB, 8GB 하드웨어 프로필 및 데스크탑 GUI와 1:1 일치하는 템포럴 Hann Window 프리셋 제공
+   - 4K/8K 플레이트용 `AI Plate Scale` (0.50 Half Proxy)로 VRAM 75% 절감 및 고속 렌더 지원
+6. **내장 매트 엣지 후처리 (`Matte & Edge Refine`)**:
    - 노드 내부에서 `Erode/Dilate (수축/확장)`, `Edge Blur (소프트니스)`, `Matte Gamma`를 실시간 슬라이더로 조절 가능합니다.
-6. **VFX 스튜디오 표준 씬 리니어(Scene-Linear) EXR 워크플로우**:
+7. **VFX 스튜디오 표준 씬 리니어(Scene-Linear) EXR 워크플로우**:
    - 16-bit Half 또는 32-bit Float OpenEXR 시퀀스로 직접 렌더링되어 감마 왜곡이나 클리핑 없는 네이티브 컬러를 유지합니다.
-7. **누크 환경과 완전 격리 (No Conflict)**:
+8. **누크 환경과 완전 격리 (No Conflict)**:
    - 누크 내장 파이썬과 별도로 CorridorKey의 격리된 **무설치 포터블 Python(PyTorch + CUDA 12.8)**을 서브프로세스로 호출하므로 라이브러리 충돌이 전혀 없습니다.
 
 ---

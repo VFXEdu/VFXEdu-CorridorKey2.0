@@ -412,51 +412,40 @@ def execute_keyer(node, preview_single_frame: bool = False) -> bool:
     hint_quality = float(node.knob("hint_quality").value()) if node.knob("hint_quality") else 0.95
     linear_wf = bool(node.knob("linear_workflow").value()) if node.knob("linear_workflow") else True
 
-    # 6.1 Process Hann Window / VRAM Preset
-    preset_val = ""
-    if node.knob("hann_mode"):
-        preset_val = str(node.knob("hann_mode").value())
-    elif node.knob("vram_preset"):
-        preset_val = str(node.knob("vram_preset").value())
-    else:
-        preset_val = "Auto"
+    # 6.1 Process GPU VRAM Profile and Hann Window Presets
+    vram_preset_val = str(node.knob("vram_preset").value() if node.knob("vram_preset") else "Auto")
+    hann_preset_val = str(node.knob("hann_mode").value() if node.knob("hann_mode") else "Auto")
 
-    if "80 chunk" in preset_val or "Ultra Fast" in preset_val:
-        hann_chunk = 80
-        hann_stride = 40
-        low_vram = False
+    # If Hann Window is explicitly chosen (not Auto-Detect), prioritize it:
+    if "80 chunk" in hann_preset_val or "Max Continuity" in hann_preset_val:
+        hann_chunk, hann_stride, stage2_batch, low_vram, auto_vram = 80, 40, 2, False, False
+    elif "48 chunk" in hann_preset_val or "High Quality" in hann_preset_val:
+        hann_chunk, hann_stride, stage2_batch, low_vram, auto_vram = 48, 24, 1, False, False
+    elif "24 chunk" in hann_preset_val or "Standard Balanced" in hann_preset_val:
+        hann_chunk, hann_stride, stage2_batch, low_vram, auto_vram = 24, 12, 1, False, False
+    elif "8 chunk" in hann_preset_val or "Low VRAM" in hann_preset_val:
+        hann_chunk, hann_stride, stage2_batch, low_vram, auto_vram = 8, 4, 1, True, False
+    elif "1 chunk" in hann_preset_val or "Single Frame" in hann_preset_val:
+        hann_chunk, hann_stride, stage2_batch, low_vram, auto_vram = 1, 1, 1, True, False
+    elif "Custom" in hann_preset_val:
         auto_vram = False
-        stage2_batch = 2
-    elif "48 chunk" in preset_val or "High Quality" in preset_val or "Balanced" in preset_val:
-        hann_chunk = 48
-        hann_stride = 24
-        low_vram = False
-        auto_vram = False
-        stage2_batch = 1
-    elif "24 chunk" in preset_val or "Standard Balanced" in preset_val or "Safe Mode" in preset_val:
-        hann_chunk = 24
-        hann_stride = 12
-        low_vram = False
-        auto_vram = False
-        stage2_batch = 1
-    elif "8 chunk" in preset_val or "Low VRAM" in preset_val:
-        hann_chunk = 8
-        hann_stride = 4
-        low_vram = True
-        auto_vram = False
-        stage2_batch = 1
-    elif "1 chunk" in preset_val or "Single Frame" in preset_val:
-        hann_chunk = 1
-        hann_stride = 1
-        low_vram = True
-        auto_vram = False
-        stage2_batch = 1
-    elif "Custom" in preset_val:
-        auto_vram = False
-    elif "Auto" in preset_val:
-        auto_vram = True
-        hann_chunk = 0
-        hann_stride = 0
+    else:
+        # Hann Window is Auto-Detect -> resolve from GPU VRAM Profile
+        if "24GB" in vram_preset_val or "Ultra Fast" in vram_preset_val:
+            hann_chunk, hann_stride, stage2_batch, low_vram, auto_vram = 80, 40, 2, False, False
+        elif "16GB" in vram_preset_val or "Balanced" in vram_preset_val:
+            hann_chunk, hann_stride, stage2_batch, low_vram, auto_vram = 48, 24, 1, False, False
+        elif "12GB" in vram_preset_val or "Safe Mode" in vram_preset_val:
+            hann_chunk, hann_stride, stage2_batch, low_vram, auto_vram = 24, 12, 1, False, False
+        elif "8GB" in vram_preset_val or "Low VRAM" in vram_preset_val:
+            hann_chunk, hann_stride, stage2_batch, low_vram, auto_vram = 8, 4, 1, True, False
+        elif "Custom" in vram_preset_val:
+            auto_vram = False
+        else:
+            # Fully Automatic (Auto VRAM Profiling)
+            auto_vram = True
+            hann_chunk = 0
+            hann_stride = 0
 
     # 6.2 Process Model Scale (Resolution Downscaling for 4K/8K Plates)
     model_scale = 1.0
@@ -730,38 +719,11 @@ def _build_dag_node_tree(gizmo_node, alpha_path: str, fg_path: str, cutout_path:
 
         current_alpha = r_alpha
 
-        # Hook GarbageMatte (Input 2) if connected
-        garbage_node = gizmo_node.input(2)
-        if garbage_node:
-            m_garb = nuke.nodes.Merge2(
-                inputs=[current_alpha, garbage_node],
-                operation="stencil",
-                Achannels="alpha",
-                Bchannels="alpha",
-                output="alpha",
-                xpos=gx + 120,
-                ypos=gy + 160,
-                label="Garbage Cutout",
-            )
-            current_alpha = m_garb
-
-        # Hook CoreMatte (Input 3) if connected
-        core_node = gizmo_node.input(3)
-        if core_node:
-            m_core = nuke.nodes.ChannelMerge(
-                inputs=[current_alpha, core_node],
-                operation="union",
-                xpos=gx + 120,
-                ypos=gy + 220,
-                label="Core Holdout",
-            )
-            current_alpha = m_core
-
-        cpy = nuke.nodes.Copy(xpos=gx, ypos=gy + 280, inputs=[r_fg, current_alpha])
+        cpy = nuke.nodes.Copy(xpos=gx, ypos=gy + 180, inputs=[r_fg, current_alpha])
         cpy.knob("from0").setValue("rgba.alpha")
         cpy.knob("to0").setValue("rgba.alpha")
 
-        pm = nuke.nodes.Premult(xpos=gx, ypos=gy + 340, inputs=[cpy])
+        pm = nuke.nodes.Premult(xpos=gx, ypos=gy + 240, inputs=[cpy])
         pm.knob("label").setValue("Keyed & Despilled")
 
 
@@ -872,6 +834,19 @@ def create_corridorkeyer_node():
     carry_h = nuke.Boolean_Knob("carry_hint", "Carry Hint to Long Clip")
     carry_h.setValue(True)
     group.addKnob(carry_h)
+
+    vram_p = nuke.Enumeration_Knob(
+        "vram_preset", "GPU VRAM Profile",
+        [
+            "Auto (Smart Profile)",
+            "24GB+ (RTX 4090, 5090)",
+            "16GB (RTX 4080)",
+            "12GB (RTX 3060, 4070)",
+            "8GB (Laptop / Low VRAM)",
+            "Custom (Use Hann Window below)"
+        ]
+    )
+    group.addKnob(vram_p)
 
     hann_p = nuke.Enumeration_Knob(
         "hann_mode", "Hann Window",
@@ -993,8 +968,6 @@ def create_corridorkeyer_node():
     with group:
         in_source = nuke.nodes.Input(name="Source", xpos=0, ypos=0)
         in_hint = nuke.nodes.Input(name="FrameHint", xpos=200, ypos=0)
-        in_garb = nuke.nodes.Input(name="GarbageMatte", xpos=400, ypos=0)
-        in_core = nuke.nodes.Input(name="CoreMatte", xpos=600, ypos=0)
 
         read_alpha = nuke.nodes.Read(name="Read_Alpha", xpos=400, ypos=100)
         read_alpha.knob("file").setValue("")
