@@ -246,7 +246,9 @@ class InferenceWorker(QtCore.QThread):
     def run(self):
         try:
             proc_env = os.environ.copy()
-            proc_env["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+            _alloc_val = "max_split_size_mb:512" if sys.platform == "win32" else "expandable_segments:True"
+            proc_env["PYTORCH_ALLOC_CONF"] = _alloc_val
+            proc_env.pop("PYTORCH_CUDA_ALLOC_CONF", None)
             proc_env["PYTHONUTF8"] = "1"
             self.proc = subprocess.Popen(
                 self.cmd,

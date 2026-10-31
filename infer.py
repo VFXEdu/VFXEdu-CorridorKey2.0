@@ -7,11 +7,9 @@ import sys
 import tempfile
 
 # Prevent PyTorch CUDA memory fragmentation on long video footage
-_alloc_conf = os.environ.get("PYTORCH_CUDA_ALLOC_CONF", "")
-if not _alloc_conf:
-    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
-elif "expandable_segments" not in _alloc_conf:
-    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = f"{_alloc_conf},expandable_segments:True"
+_alloc_val = "max_split_size_mb:512" if sys.platform == "win32" else "expandable_segments:True"
+if "PYTORCH_ALLOC_CONF" not in os.environ and "PYTORCH_CUDA_ALLOC_CONF" not in os.environ:
+    os.environ["PYTORCH_ALLOC_CONF"] = _alloc_val
 
 os.environ["HF_HUB_OFFLINE"] = "1"
 os.environ["TRANSFORMERS_OFFLINE"] = "1"

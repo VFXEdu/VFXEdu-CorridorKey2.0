@@ -2,7 +2,7 @@
 @chcp 65001 >nul
 cd /d "%~dp0"
 set "PYTHONUTF8=1"
-set "PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True"
+set "PYTORCH_ALLOC_CONF=max_split_size_mb:512"
 set "PATH=%~dp0bin;%~dp0python_embed;%~dp0python_embed\Scripts;%PATH%"
 
 if not exist "%~dp0gui.py" goto err_not_extracted

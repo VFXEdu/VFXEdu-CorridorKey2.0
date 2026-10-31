@@ -205,12 +205,10 @@ def apply_auto_vram(cfg: InferenceConfig, shape_hw, num_frames: int) -> None:
 
 
 def prepare_runtime_environment(paths: RuntimePaths) -> None:
-    # Ensure expandable_segments is set to prevent memory fragmentation
-    alloc_conf = os.environ.get("PYTORCH_CUDA_ALLOC_CONF", "")
-    if not alloc_conf:
-        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
-    elif "expandable_segments" not in alloc_conf:
-        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = f"{alloc_conf},expandable_segments:True"
+    # Ensure memory allocator is set to prevent memory fragmentation
+    _alloc_val = "max_split_size_mb:512" if sys.platform == "win32" else "expandable_segments:True"
+    if "PYTORCH_ALLOC_CONF" not in os.environ and "PYTORCH_CUDA_ALLOC_CONF" not in os.environ:
+        os.environ["PYTORCH_ALLOC_CONF"] = _alloc_val
 
     os.environ.setdefault("HF_HUB_OFFLINE", "1")
     os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
