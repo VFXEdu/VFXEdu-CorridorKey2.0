@@ -34,7 +34,7 @@ def get_current_app_version() -> str:
         m = re.search(r'APP_VERSION\s*=\s*["\']([^"\']+)["\']', text)
         if m:
             return m.group(1)
-    return "v0.1.4"
+    return "v0.1.5"
 
 
 def get_git_remote_url(remote_name: str = "origin") -> str | None:
