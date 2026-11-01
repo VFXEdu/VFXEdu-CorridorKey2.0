@@ -67,6 +67,26 @@ def ensure_distribution_package():
     print(f"[*] Distribution package ready: {RELEASE_ZIP.name} ({RELEASE_ZIP.stat().st_size / (1024*1024):.2f} MB)")
 
 
+def extract_changelog_for_tag(tag: str) -> str | None:
+    """Extract release notes section from CHANGELOG.md for the given version tag."""
+    changelog_file = ROOT / "CHANGELOG.md"
+    if not changelog_file.is_file():
+        return None
+    try:
+        content = changelog_file.read_text(encoding="utf-8")
+        norm_tag = tag.lstrip("v")
+        # Match pattern: ## [v0.1.7] or ## [0.1.7] or ## v0.1.7
+        pattern = rf"(?ms)^##\s+\[?(?:v)?{re.escape(norm_tag)}\]?[^\n]*\n(.*?)(?=^##\s+|\Z)"
+        m = re.search(pattern, content)
+        if m:
+            body = m.group(1).strip()
+            body = re.sub(r"\n---\s*$", "", body).strip()
+            return body
+    except Exception:
+        pass
+    return None
+
+
 def create_github_release_api(
     token: str,
     owner: str,
@@ -102,7 +122,7 @@ def create_github_release_api(
     except urllib.error.HTTPError as e:
         err_body = e.read().decode("utf-8", errors="ignore")
         if e.code == 422 and "already_exists" in err_body:
-            print(f"[*] Release with tag {tag} already exists. Fetching existing release...")
+            print(f"[*] Release with tag {tag} already exists. Updating release notes (PATCH)...")
             get_req = urllib.request.Request(
                 f"{url}/tags/{tag}",
                 headers={
@@ -112,7 +132,28 @@ def create_github_release_api(
                 },
             )
             with urllib.request.urlopen(get_req) as g_resp:
-                return json.loads(g_resp.read().decode("utf-8"))
+                existing_rel = json.loads(g_resp.read().decode("utf-8"))
+
+            rel_id = existing_rel.get("id")
+            if rel_id:
+                patch_data = json.dumps({"body": body, "name": name}).encode("utf-8")
+                patch_req = urllib.request.Request(
+                    f"{url}/{rel_id}",
+                    data=patch_data,
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Accept": "application/vnd.github+json",
+                        "Content-Type": "application/json",
+                        "User-Agent": "VFXEdu-Release-Publisher",
+                    },
+                    method="PATCH",
+                )
+                try:
+                    with urllib.request.urlopen(patch_req) as p_resp:
+                        return json.loads(p_resp.read().decode("utf-8"))
+                except Exception as patch_err:
+                    print(f"[!] Warning: failed to PATCH existing release notes: {patch_err}")
+            return existing_rel
         raise RuntimeError(f"GitHub API error {e.code}: {err_body}")
 
 
@@ -236,32 +277,42 @@ def main():
     if args.git_push:
         git_tag_and_push(tag)
 
-    # 5. Create Release with clean changelog
+    # 5. Create Release with clean changelog (preserves all older releases)
     release_name = f"VFXEdu CorridorKey 2.0 {tag}"
     if getattr(args, "notes", None):
         changelog = args.notes
     else:
-        try:
-            prev_tag_res = subprocess.run(
-                ["git", "describe", "--tags", "--abbrev=0", "HEAD~1"],
-                capture_output=True, text=True, cwd=ROOT
-            )
-            prev_tag = prev_tag_res.stdout.strip()
-            log_range = f"{prev_tag}..HEAD" if prev_tag else "HEAD~10..HEAD"
-            log_res = subprocess.run(
-                ["git", "log", log_range, "--pretty=format:- %s (%h)"],
-                capture_output=True, text=True, cwd=ROOT
-            )
-            commits = log_res.stdout.strip()
-            changelog = f"### 🚀 주요 업데이트 내역 ({tag})\n\n{commits}"
-        except Exception:
-            changelog = f"⚡ VFXEdu CorridorKey 2.0 {tag} 최신 업데이트 릴리즈"
+        file_notes = extract_changelog_for_tag(tag)
+        if file_notes:
+            changelog = file_notes
+        else:
+            try:
+                prev_tag_res = subprocess.run(
+                    ["git", "describe", "--tags", "--abbrev=0", "HEAD~1"],
+                    capture_output=True, text=True, cwd=ROOT
+                )
+                prev_tag = prev_tag_res.stdout.strip()
+                log_range = f"{prev_tag}..HEAD" if prev_tag else "HEAD~10..HEAD"
+                log_res = subprocess.run(
+                    ["git", "log", log_range, "--pretty=format:- %s"],
+                    capture_output=True, text=True, cwd=ROOT
+                )
+                commits = log_res.stdout.strip()
+                changelog = f"### 🚀 주요 업데이트 내역 ({tag})\n\n{commits}" if commits else f"⚡ VFXEdu CorridorKey 2.0 {tag} 최신 업데이트 릴리즈"
+            except Exception:
+                changelog = f"⚡ VFXEdu CorridorKey 2.0 {tag} 최신 업데이트 릴리즈"
 
     release_body = f"""## ⚡ VFXEdu CorridorKey 2.0 {tag} Update
 
+> **간편 업데이트 안내**: 기존 사용자는 `Update.bat`을 실행하거나 GUI 화면에서 **[Update Now (Fast Patch)]**를 누르면 5~10초 만에 최신 코드로 자동 패치됩니다.
+
+---
+
 {changelog}
 
-> 기존 사용자는 `Update.bat` 실행 또는 GUI 화면에서 **[Update Now]**를 누르면 5~10초 만에 최신 코드로 자동 패치됩니다.
+---
+
+*모든 이전 버전과 릴리즈 내역은 GitHub에 영구 보존됩니다.*
 """
     print(f"\n[*] Creating GitHub Release '{release_name}' on {owner}/{repo}...")
     release = create_github_release_api(
