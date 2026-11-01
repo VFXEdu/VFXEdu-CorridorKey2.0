@@ -149,10 +149,10 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
 
         # Tab 1: VRAM & Performance
         "lbl_hann": "Hann Window",
-        "hann_auto": "Auto-Detect (Optimized per clip from free GPU memory — Recommended)",
-        "hann_80_40": "Max Continuity (80 chunk / 40 stride) — 24GB+ High-end GPU",
+        "hann_auto": "Auto-Detect (Smart Balanced: Fast & Safe — Recommended)",
+        "hann_80_40": "Max Continuity (80 chunk / 40 stride) — 24GB+ (Slow / Heavy Compute)",
         "hann_48_24": "High Quality (48 chunk / 24 stride) — 16GB+ GPU Recommended",
-        "hann_24_12": "Standard Balanced (24 chunk / 12 stride) — 8~12GB GPU",
+        "hann_24_12": "Standard Balanced (24 chunk / 12 stride) — Fast & Stable (Recommended)",
         "hann_8_4": "Low VRAM (8 chunk / 4 stride) — 6~8GB GPU",
         "hann_1_1": "Single Frame (1 chunk / 1 stride) — Lowest Peak Memory",
         "hann_custom": "Custom Size",
@@ -497,10 +497,10 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
 
         # Tab 1: VRAM & Performance
         "lbl_hann": "Hann 윈도우",
-        "hann_auto": "자동 감지 (GPU 메모리에 맞춰 자동 선택 — 권장)",
-        "hann_80_40": "최대 연속성 (80 chunk / 40 stride) — 24GB+ GPU",
+        "hann_auto": "자동 감지 (스마트 균형: 고속 & 안정적 — 권장)",
+        "hann_80_40": "최대 연속성 (80 chunk / 40 stride) — 24GB+ (연산량 큼 / 저속)",
         "hann_48_24": "고품질 권장 (48 chunk / 24 stride) — 16GB+ GPU",
-        "hann_24_12": "표준 균형 (24 chunk / 12 stride) — 8~12GB GPU",
+        "hann_24_12": "표준 균형 (24 chunk / 12 stride) — 고속 & 안정적 (권장)",
         "hann_8_4": "저메모리 (8 chunk / 4 stride) — 6~8GB GPU",
         "hann_1_1": "단일 프레임 (1 chunk / 1 stride) — 최저 메모리",
         "hann_custom": "사용자 직접 지정 (Custom Size)",

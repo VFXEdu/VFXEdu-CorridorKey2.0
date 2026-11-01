@@ -74,7 +74,7 @@ import uuid
 # Ensure local bin (ffmpeg.exe) is in PATH
 _ROOT = Path(__file__).resolve().parent
 APP_NAME = "VFXEdu CorridorKey 2.0"
-APP_VERSION = "v0.1.6"
+APP_VERSION = "v0.1.7"
 _BIN = _ROOT / "bin"
 if _BIN.is_dir() and str(_BIN) not in os.environ.get("PATH", ""):
     os.environ["PATH"] = str(_BIN) + os.pathsep + os.environ.get("PATH", "")
@@ -1516,11 +1516,11 @@ class Window(QMainWindow):
 
         self.hann_mode = QComboBox()
         self.hann_mode.addItem(tr('hann_auto'), 'auto')
-        self.hann_mode.addItem(tr('hann_80_40'), '80_40')
-        self.hann_mode.addItem(tr('hann_48_24'), '48_24')
         self.hann_mode.addItem(tr('hann_24_12'), '24_12')
+        self.hann_mode.addItem(tr('hann_48_24'), '48_24')
         self.hann_mode.addItem(tr('hann_8_4'), '8_4')
         self.hann_mode.addItem(tr('hann_1_1'), '1_1')
+        self.hann_mode.addItem(tr('hann_80_40'), '80_40')
         self.hann_mode.addItem(tr('hann_custom'), 'custom')
         self.hann_mode.currentIndexChanged.connect(self._on_hann_mode_changed)
         self.lbl_row_hann = QLabel(tr('lbl_hann'))
@@ -2611,11 +2611,11 @@ class Window(QMainWindow):
         if hasattr(self, 'hann_mode'):
             self._refresh_combo(self.hann_mode, [
                 (tr('hann_auto'), 'auto'),
-                (tr('hann_80_40'), '80_40'),
-                (tr('hann_48_24'), '48_24'),
                 (tr('hann_24_12'), '24_12'),
+                (tr('hann_48_24'), '48_24'),
                 (tr('hann_8_4'), '8_4'),
                 (tr('hann_1_1'), '1_1'),
+                (tr('hann_80_40'), '80_40'),
                 (tr('hann_custom'), 'custom'),
             ])
         if hasattr(self, 'lbl_row_custom_hann'):

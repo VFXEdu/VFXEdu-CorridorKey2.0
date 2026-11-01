@@ -432,9 +432,9 @@ def execute_keyer(node, preview_single_frame: bool = False) -> bool:
     else:
         # Hann Window is Auto-Detect -> resolve from GPU VRAM Profile
         if "24GB" in vram_preset_val or "Ultra Fast" in vram_preset_val:
-            hann_chunk, hann_stride, stage2_batch, low_vram, auto_vram = 80, 40, 2, False, False
+            hann_chunk, hann_stride, stage2_batch, low_vram, auto_vram = 48, 24, 2, False, False
         elif "16GB" in vram_preset_val or "Balanced" in vram_preset_val:
-            hann_chunk, hann_stride, stage2_batch, low_vram, auto_vram = 48, 24, 1, False, False
+            hann_chunk, hann_stride, stage2_batch, low_vram, auto_vram = 24, 12, 1, False, False
         elif "12GB" in vram_preset_val or "Safe Mode" in vram_preset_val:
             hann_chunk, hann_stride, stage2_batch, low_vram, auto_vram = 24, 12, 1, False, False
         elif "8GB" in vram_preset_val or "Low VRAM" in vram_preset_val:
@@ -851,12 +851,12 @@ def create_corridorkeyer_node():
     hann_p = nuke.Enumeration_Knob(
         "hann_mode", "Hann Window",
         [
-            "Auto-Detect (Recommended)",
-            "Max Continuity (80 chunk / 40 stride) — 24GB+ GPU",
+            "Auto-Detect (Smart Balanced — Recommended)",
+            "Standard Balanced (24 chunk / 12 stride) — Fast & Stable (Recommended)",
             "High Quality (48 chunk / 24 stride) — 16GB+ GPU",
-            "Standard Balanced (24 chunk / 12 stride) — 8~12GB GPU",
             "Low VRAM (8 chunk / 4 stride) — 6~8GB GPU",
             "Single Frame (1 chunk / 1 stride) — Lowest Peak Memory",
+            "Max Continuity (80 chunk / 40 stride) — 24GB+ (Slow / Heavy)",
             "Custom Size (Manual in VRAM tab)"
         ]
     )
