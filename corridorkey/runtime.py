@@ -127,6 +127,7 @@ class InferenceConfig:
     despill_strength: float = 0.5
     output_format: str = "video"
     exr_dtype: str = "half"
+    start_frame: int | None = None
 
 
 # Peak GPU memory in GiB by megapixels of model input, measured at each Hann
@@ -804,6 +805,14 @@ def run_inference(model, input_path: str, output_dir: str, cfg: InferenceConfig,
         use_exr = cfg.output_format == "exr"
         if cfg.output_format not in ("video", "exr"):
             raise ValueError(f"unsupported output format: {cfg.output_format}")
+        if use_exr:
+            if cfg.start_frame is not None:
+                seq_start_frame = int(cfg.start_frame)
+            elif meta.get("frame_paths") and meta.get("start_frame") is not None and int(meta["start_frame"]) > 0:
+                seq_start_frame = int(meta["start_frame"])
+            else:
+                seq_start_frame = 1  # VFX standard 1-based indexing
+
         for name in sorted(cfg.outputs):
             if name not in suffix:
                 raise ValueError(f"unsupported output choice: {name}")
@@ -812,7 +821,8 @@ def run_inference(model, input_path: str, output_dir: str, cfg: InferenceConfig,
                 writers[name] = ExrSequenceWriter(
                     os.path.join(output_dir, f"{clip_name}_{suffix[name]}_exr"),
                     fps, (W_out, H_out), channels=channels,
-                    dtype=cfg.exr_dtype, frame_name=suffix[name])
+                    dtype=cfg.exr_dtype, frame_name=suffix[name],
+                    start_frame=seq_start_frame)
             else:
                 ext = ".mov" if name == "cutout" else ".mp4"
                 channels = 4 if name == "cutout" else 3

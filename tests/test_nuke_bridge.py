@@ -87,9 +87,12 @@ class TestNukeBridge(unittest.TestCase):
                 linear_workflow=False,
                 model_scale=0.50,
                 stage2_batch=2,
+                start_frame=1001,
             )
 
             self.assertIn("--low_vram", cmd)
+            self.assertIn("--start_frame", cmd)
+            self.assertIn("1001", cmd)
             self.assertIn("--hann_chunk", cmd)
             self.assertIn("24", cmd)
             self.assertIn("--hann_stride", cmd)
@@ -138,6 +141,31 @@ class TestNukeBridge(unittest.TestCase):
         self.assertIsNone(corridorkey_nuke.reload_reads(None))
         self.assertFalse(corridorkey_nuke.execute_keyer(None))
         self.assertIsNone(corridorkey_nuke.create_corridorkeyer_node())
+
+    def test_exr_sequence_writer_start_frame(self):
+        import shutil
+        import tempfile
+        import numpy as np
+        from corridorkey.video_io import ExrSequenceWriter
+
+        tmp_dir = Path(tempfile.mkdtemp())
+        try:
+            # Test default start_frame = 1
+            w = ExrSequenceWriter(str(tmp_dir / "default"), fps=24.0, size=(16, 16), channels=3, dtype="half", frame_name="alpha")
+            frame = np.zeros((16, 16, 3), dtype=np.float32)
+            w.write(frame)
+            w.release()
+            files = sorted([f.name for f in (tmp_dir / "default").glob("*.exr")])
+            self.assertEqual(files, ["alpha_000001.exr"])
+
+            # Test explicit start_frame = 1001
+            w2 = ExrSequenceWriter(str(tmp_dir / "custom"), fps=24.0, size=(16, 16), channels=3, dtype="half", frame_name="cutout", start_frame=1001)
+            w2.write(frame)
+            w2.release()
+            files2 = sorted([f.name for f in (tmp_dir / "custom").glob("*.exr")])
+            self.assertEqual(files2, ["cutout_001001.exr"])
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

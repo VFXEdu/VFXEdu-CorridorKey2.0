@@ -4,6 +4,7 @@ import glob
 import math
 import os
 import queue
+import re
 import shutil
 import subprocess
 import sys
@@ -333,6 +334,17 @@ def probe_frame_dir_meta(frame_dir: str, *, num_frames: int,
     pad_r = w_out - w_model - pad_l
     pad_t = (h_out - h_model) // 2
     pad_b = h_out - h_model - pad_t
+
+    # Infer start frame from the first file name (e.g. shot_000001.exr -> 1)
+    start_frame = 1
+    if paths:
+        nums = re.findall(r"\d+", Path(paths[0]).stem)
+        if nums:
+            try:
+                start_frame = int(nums[-1])
+            except Exception:
+                start_frame = 1
+
     meta = {
         "frame_paths": paths,
         "native_fps": float(fps),
@@ -342,7 +354,7 @@ def probe_frame_dir_meta(frame_dir: str, *, num_frames: int,
         "model_scale": float(model_scale),
         "source_hw": (h_native, w_native),
         "shape_hw": (h_out, w_out),
-        "start_frame": 0,
+        "start_frame": start_frame,
         "num_frames": len(paths),
         "pad": (pad_l, pad_r, pad_t, pad_b),
         "native_resolution": True,
@@ -353,7 +365,7 @@ def probe_frame_dir_meta(frame_dir: str, *, num_frames: int,
     }
     print(f"  probed {len(paths)} frames from {frame_dir} @ {w_out}x{h_out} "
           f"(native {w_native}x{h_native}, fps {fps:.2f}, "
-          f"exr_linear={exr_linear}, pad={meta['pad']})")
+          f"start_frame={start_frame}, exr_linear={exr_linear}, pad={meta['pad']})")
     return meta
 
 
@@ -793,7 +805,7 @@ class ExrSequenceWriter:
 
     def __init__(self, dir_path: str, fps: float, size: tuple[int, int], *,
                  channels: int = 3, dtype: str = "half", maxsize: int = 2,
-                 frame_name: str = "frame"):
+                 frame_name: str = "frame", start_frame: int = 1):
         if dtype not in ("half", "float"):
             raise ValueError(f"exr dtype must be 'half' or 'float', got {dtype!r}")
         self.dir_path = str(dir_path)
@@ -809,7 +821,7 @@ class ExrSequenceWriter:
             cv2.IMWRITE_EXR_COMPRESSION, cv2.IMWRITE_EXR_COMPRESSION_ZIP,
         ]
         os.makedirs(self.dir_path, exist_ok=True)
-        self.frame_idx = 0
+        self.frame_idx = int(start_frame)
         self.q = queue.Queue(maxsize=maxsize)
         self.err = None
         self.thread = threading.Thread(target=self._worker, daemon=True)

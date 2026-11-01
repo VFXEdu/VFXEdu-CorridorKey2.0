@@ -148,6 +148,8 @@ def main():
                           "linear OpenEXR image sequences (full HDR float)."))
     ap.add_argument("--exr_dtype", choices=("half", "float"), default="half",
                     help="EXR pixel type for --output_format exr. Default: half.")
+    ap.add_argument("--start_frame", type=int, default=None,
+                    help="Starting frame index for image sequence output (e.g. EXR). Defaults to 1 (or source sequence frame number).")
     ap.add_argument("--ffmpeg_bin", default="ffmpeg")
     ap.add_argument("--ffmpeg_codec", default="libx264")
     ap.add_argument("--crf", type=int, default=12)
@@ -216,6 +218,7 @@ def main():
         despill_strength=args.despill_strength,
         output_format=args.output_format,
         exr_dtype=args.exr_dtype,
+        start_frame=args.start_frame,
     )
     model = load_model(paths, device="cuda")
     run_inference(

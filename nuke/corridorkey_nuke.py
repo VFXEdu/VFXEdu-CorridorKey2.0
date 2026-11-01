@@ -135,6 +135,7 @@ def build_command_args(
     linear_workflow: bool = True,
     model_scale: float = 1.0,
     stage2_batch: int = 1,
+    start_frame: int | None = None,
 ) -> list[str]:
     """Construct CLI arguments for CorridorKey infer.py."""
     infer_py = ck_root / "infer.py"
@@ -150,6 +151,9 @@ def build_command_args(
         "--exr_dtype", str(exr_dtype),
         "--despill_strength", f"{float(despill_strength):.2f}",
     ]
+
+    if start_frame is not None:
+        cmd.extend(["--start_frame", str(int(start_frame))])
 
     if float(model_scale) != 1.0:
         cmd.extend(["--model_scale", f"{float(model_scale):.2f}"])
@@ -292,6 +296,13 @@ def execute_keyer(node, preview_single_frame: bool = False) -> bool:
     else:  # Input Node Range
         first_frame = int(source_node.firstFrame())
         last_frame = int(source_node.lastFrame())
+
+    # VFX standard: ensure starting frame is 1-based by default
+    if range_mode != "Custom" and first_frame <= 0:
+        diff = 1 - first_frame
+        first_frame = 1
+        if last_frame >= 0:
+            last_frame += diff
 
     # 3. Setup output directory safely
     out_dir_val = ""
@@ -480,6 +491,7 @@ def execute_keyer(node, preview_single_frame: bool = False) -> bool:
         linear_workflow=linear_wf,
         model_scale=model_scale,
         stage2_batch=stage2_batch,
+        start_frame=first_frame,
     )
 
     print(f"[CorridorKey] Executing Command:\n{' '.join(cmd)}")

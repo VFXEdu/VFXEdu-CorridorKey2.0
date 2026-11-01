@@ -16,6 +16,8 @@ GitHub 릴리즈 시 해당 버전의 내용이 릴리즈 노트 및 GUI 업데�
 - **Nuke 기즈모 2-포트 단순화 (Source & FrameHint)**
   - 필수 입력 포트인 `Source`와 `FrameHint` 2개로 간소화하여 노드 그래프(DAG) 가독성 극대화 (Garbage/Core 포트 정리)
   - GPU VRAM 하드웨어 프리셋(8GB / 12GB / 16GB / 24GB+)과 Hann Window 프리셋 완벽 공존 탑재
+- **Nuke EXR 랜더링 시작 프레임 1번 표준화 (VFX Standard)**
+  - Nuke에서 EXR로 랜더링 시 항상 0부터 파일이 생성되던 문제를 수정하여, 1번 프레임(`000001.exr`) 또는 Nuke 타임라인의 시작 프레임에 맞춰 정확히 1:1로 넘버링되도록 패치
 - **Windows Nuke 한글 환경 및 수식 오류 수정**
   - Windows Nuke 파이썬에서 한글 경로 및 UTF-8 로그 출력 시 발생하던 `UnicodeDecodeError (0xeb)` 완벽 해결
   - Nuke `Switch_Output` 노드의 따옴표 구문 오류(`unexpected '"'`) 수정
