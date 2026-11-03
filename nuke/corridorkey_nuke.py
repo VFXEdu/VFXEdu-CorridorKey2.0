@@ -131,7 +131,8 @@ def build_command_args(
     hint_first_frame: str | None = None,
     hint_video: str | None = None,
     carry_hint: bool = True,
-    hint_quality: float = 0.95,
+    hint_quality: float = 0.75,
+    carry_hint_quality: float = 0.85,
     linear_workflow: bool = True,
     model_scale: float = 1.0,
     stage2_batch: int = 1,
@@ -177,9 +178,11 @@ def build_command_args(
     if hint_video and os.path.exists(hint_video):
         cmd.extend(["--hint_video", str(hint_video)])
         cmd.extend(["--hint_quality", f"{float(hint_quality):.2f}"])
+        cmd.extend(["--carry_hint_quality", f"{float(carry_hint_quality):.2f}"])
     elif hint_first_frame and os.path.exists(hint_first_frame):
         cmd.extend(["--hint_first_frame", str(hint_first_frame)])
         cmd.extend(["--hint_quality", f"{float(hint_quality):.2f}"])
+        cmd.extend(["--carry_hint_quality", f"{float(carry_hint_quality):.2f}"])
 
     if not carry_hint:
         cmd.append("--no_carry_hint")
@@ -244,6 +247,89 @@ def reload_reads(node):
     except Exception as e:
         if nuke.GUI:
             nuke.message(f"Error reloading reads: {e}")
+
+
+def _bake_nuke_hint(hint_node, source_node, out_file_pattern: str, f_start: int, f_end: int) -> None:
+    """
+    Safely bake a Nuke FrameHint branch to PNG file(s).
+    Handles Roto / RotoPaint nodes cleanly by:
+      1. Temporarily feeding a zeroed-out (black/transparent) version of the BG/Source plate
+         into the Roto/RotoPaint node's bg input (input 0), so the hint inherits the exact
+         plate resolution without baking the RGB color plate into the hint mask.
+      2. Normalizing the output mask across both RGB and Alpha (`max(r,g,b,a)`) so whether
+         RotoPaint is set to `output = alpha`, `rgba`, or `rgb`, the painted brush stroke
+         is cleanly extracted as a white (1.0) matte on black (0.0).
+    """
+    temp_nodes = []
+    saved_connections = []
+
+    try:
+        # Traverse upstream from hint_node (stopping at source_node) to find Roto / RotoPaint nodes
+        roto_nodes = []
+        visited = set()
+        stack = [hint_node]
+        while stack:
+            curr = stack.pop()
+            if curr is None or curr.name() in visited or curr == source_node:
+                continue
+            visited.add(curr.name())
+            cls_name = curr.Class() if hasattr(curr, "Class") else ""
+            if cls_name in ("RotoPaint", "Roto"):
+                roto_nodes.append(curr)
+                # Do not traverse into Roto's bg input (input 0) for more Roto nodes
+                for i in range(1, curr.inputs()):
+                    stack.append(curr.input(i))
+            else:
+                for i in range(curr.inputs()):
+                    stack.append(curr.input(i))
+
+        render_target = hint_node
+
+        # If the hint branch contains Roto/RotoPaint, isolate strokes from background plate
+        if roto_nodes:
+            for rnode in roto_nodes:
+                orig_bg = rnode.input(0)
+                saved_connections.append((rnode, 0, orig_bg))
+                ref_bg = orig_bg if orig_bg is not None else source_node
+                if ref_bg is not None:
+                    zero_bg = nuke.nodes.Multiply(inputs=[ref_bg])
+                    zero_bg.knob("channels").setValue("rgba")
+                    zero_bg.knob("value").setValue(0.0)
+                    temp_nodes.append(zero_bg)
+                    rnode.setInput(0, zero_bg)
+
+            # Consolidate any painted channel (alpha or rgb) into both rgb and alpha
+            norm_hint = nuke.nodes.Expression(inputs=[hint_node])
+            if norm_hint.knob("channel0"):
+                norm_hint.knob("channel0").setValue("rgb")
+            if norm_hint.knob("expr0"):
+                norm_hint.knob("expr0").setValue("clamp(max(max(r,g,b),a))")
+            if norm_hint.knob("channel3"):
+                norm_hint.knob("channel3").setValue("alpha")
+            if norm_hint.knob("expr3"):
+                norm_hint.knob("expr3").setValue("clamp(max(max(r,g,b),a))")
+            temp_nodes.append(norm_hint)
+            render_target = norm_hint
+
+        write_hint = nuke.nodes.Write(inputs=[render_target])
+        if write_hint.knob("channels"):
+            write_hint.knob("channels").setValue("rgba")
+        write_hint.knob("file").setValue(out_file_pattern)
+        write_hint.knob("file_type").setValue("png")
+        temp_nodes.append(write_hint)
+
+        nuke.execute(write_hint, f_start, f_end, 1)
+    finally:
+        for rnode, idx, orig_in in saved_connections:
+            try:
+                rnode.setInput(idx, orig_in)
+            except Exception:
+                pass
+        for tnode in reversed(temp_nodes):
+            try:
+                nuke.delete(tnode)
+            except Exception:
+                pass
 
 
 def execute_keyer(node, preview_single_frame: bool = False) -> bool:
@@ -388,27 +474,15 @@ def execute_keyer(node, preview_single_frame: bool = False) -> bool:
             hint_pattern = str(temp_hint_dir / "hint_%06d.png").replace("\\", "/")
 
             print(f"[CorridorKey] Baking full animated hint sequence to: {hint_pattern}")
-            write_hint = nuke.nodes.Write(inputs=[hint_node])
-            write_hint.knob("file").setValue(hint_pattern)
-            write_hint.knob("file_type").setValue("png")
-            try:
-                nuke.execute(write_hint, first_frame, last_frame, 1)
-                hint_video_path = str(temp_hint_dir)
-            finally:
-                nuke.delete(write_hint)
+            _bake_nuke_hint(hint_node, source_node, hint_pattern, first_frame, last_frame)
+            hint_video_path = str(temp_hint_dir)
         else:
             temp_hint_dir = out_dir / "_temp_hint"
             temp_hint_dir.mkdir(parents=True, exist_ok=True)
             hint_file_path = str(temp_hint_dir / "frame_hint.png").replace("\\", "/")
 
             print(f"[CorridorKey] Baking single-frame hint to: {hint_file_path}")
-            write_hint = nuke.nodes.Write(inputs=[hint_node])
-            write_hint.knob("file").setValue(hint_file_path)
-            write_hint.knob("file_type").setValue("png")
-            try:
-                nuke.execute(write_hint, first_frame, first_frame, 1)
-            finally:
-                nuke.delete(write_hint)
+            _bake_nuke_hint(hint_node, source_node, hint_file_path, first_frame, first_frame)
 
     # 6. Read parameter knobs
     output_format = node.knob("output_format").value() if node.knob("output_format") else "exr"
@@ -420,7 +494,8 @@ def execute_keyer(node, preview_single_frame: bool = False) -> bool:
     hann_stride = int(node.knob("hann_stride").value()) if node.knob("hann_stride") else 0
     stage2_batch = int(node.knob("stage2_batch").value()) if node.knob("stage2_batch") else 1
     carry_hint = bool(node.knob("carry_hint").value()) if node.knob("carry_hint") else True
-    hint_quality = float(node.knob("hint_quality").value()) if node.knob("hint_quality") else 0.95
+    hint_quality = float(node.knob("hint_quality").value()) if node.knob("hint_quality") else 0.75
+    carry_hint_quality = float(node.knob("carry_hint_quality").value()) if node.knob("carry_hint_quality") else 0.85
     linear_wf = bool(node.knob("linear_workflow").value()) if node.knob("linear_workflow") else True
 
     # 6.1 Process GPU VRAM Profile and Hann Window Presets
@@ -488,6 +563,7 @@ def execute_keyer(node, preview_single_frame: bool = False) -> bool:
         hint_video=hint_video_path,
         carry_hint=carry_hint,
         hint_quality=hint_quality,
+        carry_hint_quality=carry_hint_quality,
         linear_workflow=linear_wf,
         model_scale=model_scale,
         stage2_batch=stage2_batch,
@@ -836,6 +912,15 @@ def create_corridorkeyer_node():
     despill.setRange(0.0, 1.0)
     despill.setValue(0.5)
     group.addKnob(despill)
+
+    hint_q = nuke.Double_Knob("hint_quality", "Hint Quality (Trust)")
+    hint_q.setRange(0.0, 1.0)
+    hint_q.setValue(0.75)
+    hint_q.setTooltip(
+        "0.65~0.75: Rough RotoPaint brush hint (AI auto-snaps to natural subject edges)\n"
+        "0.90~0.95: Detailed alpha mask (strictly follow input mask)"
+    )
+    group.addKnob(hint_q)
 
     hint_m = nuke.Enumeration_Knob(
         "hint_mode", "Hint Conditioning Mode",

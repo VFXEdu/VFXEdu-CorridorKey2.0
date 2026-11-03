@@ -29,6 +29,8 @@ Gizmo {
  addUserKnob {20 grp_param l "AI Keying Parameters" n 1}
  addUserKnob {7 despill_strength l "Despill Strength" R 0 1}
  despill_strength 0.5
+ addUserKnob {7 hint_quality l "Hint Quality (Trust)" t "0.65~0.75: Rough RotoPaint brush hint (AI auto-snaps to natural subject edges)\n0.90~0.95: Detailed alpha mask (strictly follow input mask)" R 0 1}
+ hint_quality 0.75
  addUserKnob {4 hint_mode l "Hint Conditioning Mode" M {"First Frame Only (Fast)" "Full Animated Sequence (Roto)"}}
  addUserKnob {6 carry_hint l "Carry Hint to Long Clip" +STARTLINE}
  carry_hint true

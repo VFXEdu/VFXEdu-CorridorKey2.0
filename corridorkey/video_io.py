@@ -569,13 +569,12 @@ def load_initial_hint_frame(path_or_dir: str, meta: dict) -> torch.Tensor:
     hint = read_hint_image(paths[0])
     native_hw = meta["native_hw"]
     model_hw = meta["model_native_hw"]
-    if hint.shape[:2] == native_hw and model_hw != native_hw:
+    if hint.shape[:2] != model_hw:
+        if hint.shape[:2] != native_hw:
+            print(f"  [Hint] Resizing hint {hint.shape[:2]} -> model_hw {model_hw} (native_hw={native_hw})")
         hint = cv2.resize(hint, (model_hw[1], model_hw[0]),
                           interpolation=cv2.INTER_LANCZOS4)
-    elif hint.shape[:2] != model_hw:
-        raise ValueError(
-            f"{paths[0]}: hint shape {hint.shape[:2]} does not match "
-            f"native {native_hw} or model {model_hw}")
+        hint = np.clip(hint, 0.0, 1.0)
     hint, pad_check = center_pad_to_shape(
         hint, meta["shape_hw"][0], meta["shape_hw"][1])
     if pad_check != meta["pad"]:

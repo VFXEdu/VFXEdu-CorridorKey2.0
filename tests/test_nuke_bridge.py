@@ -124,11 +124,12 @@ class TestNukeBridge(unittest.TestCase):
                 input_path="D:/plates/shot_02",
                 output_dir="D:/renders",
                 hint_video=str(dummy_seq_dir),
-                hint_quality=0.85,
             )
             self.assertIn("--hint_video", cmd)
             self.assertIn(str(dummy_seq_dir), cmd)
             self.assertIn("--hint_quality", cmd)
+            self.assertIn("0.75", cmd)
+            self.assertIn("--carry_hint_quality", cmd)
             self.assertIn("0.85", cmd)
         finally:
             if dummy_seq_dir.exists():
