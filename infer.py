@@ -138,6 +138,10 @@ def main():
                     help="Export cutout as straight linear RGB instead of straight sRGB.")
     ap.add_argument("--despill_strength", type=float, default=0.5,
                     help="Despill strength from 0.0 (none) to 1.0 (full). Default: 0.5.")
+    ap.add_argument("--despill_color", choices=("green", "blue"), default="green",
+                    help="Screen color for despill ('green' or 'blue'). Default: green.")
+    ap.add_argument("--despill_method", choices=("average", "max", "none"), default="average",
+                    help="Despill algorithm ('average', 'max', or 'none'). Default: average.")
     ap.add_argument("--linear_brightness", type=float, default=1.0)
     ap.add_argument("--linear_contrast", type=float, default=1.0)
     ap.add_argument("--linear_contrast_pivot", type=float, default=0.18)
@@ -216,6 +220,8 @@ def main():
         frame_dir_linear=args.frame_dir_linear,
         cutout_linear=args.cutout_linear,
         despill_strength=args.despill_strength,
+        despill_color=args.despill_color,
+        despill_method=args.despill_method,
         output_format=args.output_format,
         exr_dtype=args.exr_dtype,
         start_frame=args.start_frame,

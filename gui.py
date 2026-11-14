@@ -74,7 +74,7 @@ import uuid
 # Ensure local bin (ffmpeg.exe) is in PATH
 _ROOT = Path(__file__).resolve().parent
 APP_NAME = "VFXEdu CorridorKey 2.0"
-APP_VERSION = "v0.1.8"
+APP_VERSION = "v0.1.9"
 _BIN = _ROOT / "bin"
 if _BIN.is_dir() and str(_BIN) not in os.environ.get("PATH", ""):
     os.environ["PATH"] = str(_BIN) + os.pathsep + os.environ.get("PATH", "")
@@ -315,6 +315,14 @@ def make_arguments(source: Path, destination: Path, options: dict) -> list[str]:
         '--temp_dir', str(options.get('temp_dir') or (ROOT / 'tmp' / destination.name)),
     ]
 
+    despill_color = str(options.get('despill_color', 'green')).lower()
+    if despill_color in ('green', 'blue') and despill_color != 'green':
+        args += ['--despill_color', despill_color]
+
+    despill_method = str(options.get('despill_method', 'average')).lower()
+    if despill_method in ('average', 'max', 'none') and despill_method != 'average':
+        args += ['--despill_method', despill_method]
+
     # Hints & Conditioning
     hint_mode = options.get('hint_mode')
     hint_path = options.get('hint')
@@ -324,7 +332,7 @@ def make_arguments(source: Path, destination: Path, options: dict) -> list[str]:
             if not hint_mode:
                 # Auto-determine hint mode if path was provided without explicit dropdown change
                 p = Path(h_str)
-                hint_mode = '--hint_video' if p.suffix.lower() in VIDEO_EXTS else '--hint_first_frame'
+                hint_mode = '--hint_video' if (p.is_dir() or p.suffix.lower() in VIDEO_EXTS) else '--hint_first_frame'
             args += [hint_mode, h_str]
             if options.get('quality') is not None:
                 args += ['--hint_quality', str(options['quality'])]
@@ -1542,6 +1550,7 @@ class Window(QMainWindow):
 
         self.chk_awareness = QCheckBox(tr("wb_awareness"))
         self.chk_awareness.setChecked(True)
+        self.chk_awareness.toggled.connect(self._on_awareness_toggled)
         f_mem.addRow("", self.chk_awareness)
 
         h_ta = QHBoxLayout()
@@ -1550,7 +1559,7 @@ class Window(QMainWindow):
         self.slider_time_awareness.setValue(4)
         self.lbl_time_val = QLabel("4")
         self.lbl_time_val.setStyleSheet("color:#e5a93c; font-weight:bold; min-width:18px;")
-        self.slider_time_awareness.valueChanged.connect(lambda v: self.lbl_time_val.setText(str(v)))
+        self.slider_time_awareness.valueChanged.connect(self._on_time_awareness_slider_changed)
         h_ta.addWidget(self.slider_time_awareness)
         h_ta.addWidget(self.lbl_time_val)
         self.lbl_row_time_awareness = QLabel(tr("wb_time_awareness"))
@@ -1558,7 +1567,7 @@ class Window(QMainWindow):
 
         self.combo_gpu_limit = QComboBox()
         self.combo_gpu_limit.addItems(["Auto", "24 GB (RTX 4090)", "16 GB (RTX 4080)", "12 GB (RTX 3060)", "8 GB"])
-        self.combo_gpu_limit.currentIndexChanged.connect(lambda _: self.update_deliver_vram_diagnosis())
+        self.combo_gpu_limit.currentIndexChanged.connect(self._on_gpu_limit_changed)
         self.lbl_row_gpu_limit = QLabel(tr("wb_gpu_mem_limit"))
         f_mem.addRow(self.lbl_row_gpu_limit, self.combo_gpu_limit)
 
@@ -1647,10 +1656,10 @@ class Window(QMainWindow):
 
         def _on_hint_text_changed(txt: str):
             clean = txt.strip().strip('"').strip("'")
-            if clean and os.path.isfile(clean):
+            if clean and os.path.exists(clean):
                 self.chk_use_hint.setChecked(True)
                 p = Path(clean)
-                if p.suffix.lower() in VIDEO_EXTS:
+                if p.is_dir() or p.suffix.lower() in VIDEO_EXTS:
                     self.hint_mode.setCurrentIndex(2)
                 else:
                     self.hint_mode.setCurrentIndex(1)
@@ -1701,11 +1710,17 @@ class Window(QMainWindow):
         f_despill.setSpacing(6)
 
         self.combo_despill_color = QComboBox()
-        self.combo_despill_color.addItems(["Green", "Blue"])
+        self.combo_despill_color.addItem("Green", "green")
+        self.combo_despill_color.addItem("Blue", "blue")
         f_despill.addRow("Despill Color", self.combo_despill_color)
 
         self.combo_despill_method = QComboBox()
-        self.combo_despill_method.addItems(["Average", "Max", "None"])
+        self.combo_despill_method.addItem("Average", "average")
+        self.combo_despill_method.addItem("Max", "max")
+        self.combo_despill_method.addItem("None", "none")
+        self.combo_despill_method.currentIndexChanged.connect(
+            lambda _: self.despill.setEnabled(self.combo_despill_method.currentData() != "none")
+        )
         f_despill.addRow("Despill Method", self.combo_despill_method)
 
         self.despill = QDoubleSpinBox()
@@ -2171,10 +2186,18 @@ class Window(QMainWindow):
         is_low_vram = self.low_vram.isChecked() if hasattr(self, 'low_vram') else False
 
         # Calculate estimated peak VRAM using official CorridorKey formula
+        eff_free_gb = free_gb
+        if hasattr(self, 'combo_gpu_limit'):
+            lim_txt = self.combo_gpu_limit.currentText()
+            for gb_val in (24, 16, 12, 8):
+                if f"{gb_val} GB" in lim_txt:
+                    eff_free_gb = min(free_gb, float(gb_val)) if has_gpu else float(gb_val)
+                    break
+
         try:
             from corridorkey.runtime import estimate_peak_vram_gb, select_vram_profile
             mp = (w * h) / 1e6
-            chunk, stride, auto_low, est_peak = select_vram_profile((h, w), max(1, n_frames), max(1.0, free_gb))
+            chunk, stride, auto_low, est_peak = select_vram_profile((h, w), max(1, n_frames), max(1.0, eff_free_gb))
             if is_low_vram:
                 est_peak = estimate_peak_vram_gb(mp, min(chunk, max(1, n_frames)), low_vram=True)
             est_vram_str = f"{est_peak:.1f}"
@@ -2911,20 +2934,30 @@ class Window(QMainWindow):
             elif is_hint:
                 val, _ = QFileDialog.getOpenFileName(
                     self, tr('dlg_select_hint'), field.text(),
-                    'Hints (*.png *.jpg *.jpeg *.exr *.mp4 *.mov *.avi *.webm);;Images (*.png *.exr);;Videos (*.mp4 *.mov)'
+                    'Hints (*.png *.jpg *.jpeg *.exr *.tif *.tiff *.webp *.dpx *.mp4 *.mov *.avi *.webm *.mkv *.m4v);;'
+                    'Images & Sequences (*.png *.jpg *.jpeg *.exr *.tif *.tiff *.webp *.dpx);;'
+                    'Videos (*.mp4 *.mov *.avi *.webm *.mkv *.m4v)'
                 )
             else:
                 val, _ = QFileDialog.getOpenFileName(self, tr('dlg_select_file'), field.text(), 'All Files (*.*)')
             if val:
-                field.setText(val)
                 if is_hint and hasattr(self, 'hint_mode'):
                     p = Path(val)
-                    if p.suffix.lower() in VIDEO_EXTS:
+                    # If user has Full Video/Sequence Hint mode active and selected a frame from a sequence folder,
+                    # bind the sequence folder directly so --hint_video uses the full frame sequence!
+                    if self.hint_mode.currentData() == '--hint_video' and p.is_file() and p.suffix.lower() in IMAGE_EXTS:
+                        if len(_list_sequence_frames(p.parent)) > 1:
+                            val = str(p.parent)
+                            p = p.parent
+                    field.setText(val)
+                    if p.is_dir() or p.suffix.lower() in VIDEO_EXTS:
                         self.hint_mode.setCurrentIndex(2)
                     else:
                         self.hint_mode.setCurrentIndex(1)
                     if hasattr(self, 'chk_use_hint'):
                         self.chk_use_hint.setChecked(True)
+                else:
+                    field.setText(val)
         btn.clicked.connect(select)
         row.addWidget(btn)
         return widget
@@ -3236,6 +3269,90 @@ class Window(QMainWindow):
         is_custom = (mode == 'custom')
         self.hann_chunk.setEnabled(is_custom)
         self.hann_stride.setEnabled(is_custom)
+        if hasattr(self, 'chk_awareness') and hasattr(self, 'slider_time_awareness'):
+            self.chk_awareness.blockSignals(True)
+            self.slider_time_awareness.blockSignals(True)
+            if mode == '1_1':
+                self.chk_awareness.setChecked(False)
+                self.slider_time_awareness.setEnabled(False)
+                self.slider_time_awareness.setValue(1)
+                self.lbl_time_val.setText("1")
+            else:
+                self.chk_awareness.setChecked(True)
+                self.slider_time_awareness.setEnabled(True)
+                map_slider = {'8_4': 2, '24_12': 4, 'auto': 4, '48_24': 6, '80_40': 8}
+                if mode in map_slider:
+                    v = map_slider[mode]
+                    self.slider_time_awareness.setValue(v)
+                    self.lbl_time_val.setText(str(v))
+            self.chk_awareness.blockSignals(False)
+            self.slider_time_awareness.blockSignals(False)
+
+    def _on_awareness_toggled(self, checked: bool):
+        if hasattr(self, 'slider_time_awareness'):
+            self.slider_time_awareness.setEnabled(checked)
+        if not checked:
+            idx = self.hann_mode.findData('1_1')
+            if idx >= 0:
+                self.hann_mode.setCurrentIndex(idx)
+        else:
+            if self.hann_mode.currentData() == '1_1':
+                idx = self.hann_mode.findData('24_12')
+                if idx >= 0:
+                    self.hann_mode.setCurrentIndex(idx)
+
+    def _on_time_awareness_slider_changed(self, val: int):
+        if hasattr(self, 'lbl_time_val'):
+            self.lbl_time_val.setText(str(val))
+        if val <= 1:
+            target = '1_1'
+        elif val <= 3:
+            target = '8_4'
+        elif val <= 5:
+            target = '24_12'
+        elif val <= 7:
+            target = '48_24'
+        else:
+            target = '80_40'
+        idx = self.hann_mode.findData(target)
+        if idx >= 0 and self.hann_mode.currentIndex() != idx:
+            self.hann_mode.blockSignals(True)
+            self.hann_mode.setCurrentIndex(idx)
+            self.hann_chunk.setEnabled(False)
+            self.hann_stride.setEnabled(False)
+            self.hann_mode.blockSignals(False)
+        if hasattr(self, 'chk_awareness'):
+            self.chk_awareness.blockSignals(True)
+            self.chk_awareness.setChecked(target != '1_1')
+            self.chk_awareness.blockSignals(False)
+
+    def _on_gpu_limit_changed(self, idx: int):
+        txt = self.combo_gpu_limit.currentText()
+        if "8 GB" in txt:
+            self.low_vram.setChecked(True)
+            h_idx = self.hann_mode.findData('8_4')
+            if h_idx >= 0:
+                self.hann_mode.setCurrentIndex(h_idx)
+        elif "12 GB" in txt:
+            self.low_vram.setChecked(True)
+            h_idx = self.hann_mode.findData('24_12')
+            if h_idx >= 0:
+                self.hann_mode.setCurrentIndex(h_idx)
+        elif "16 GB" in txt:
+            self.low_vram.setChecked(False)
+            h_idx = self.hann_mode.findData('24_12')
+            if h_idx >= 0:
+                self.hann_mode.setCurrentIndex(h_idx)
+        elif "24 GB" in txt:
+            self.low_vram.setChecked(False)
+            h_idx = self.hann_mode.findData('48_24')
+            if h_idx >= 0:
+                self.hann_mode.setCurrentIndex(h_idx)
+        elif txt == "Auto":
+            h_idx = self.hann_mode.findData('auto')
+            if h_idx >= 0:
+                self.hann_mode.setCurrentIndex(h_idx)
+        self.update_deliver_vram_diagnosis()
 
     def _on_codec_changed(self, idx: int):
         codec = self.codec.itemData(idx)
@@ -3247,11 +3364,15 @@ class Window(QMainWindow):
 
     def options(self) -> dict:
         outputs = [k for k, v in self.outputs.items() if v.isChecked()]
+        despill_col = self.combo_despill_color.currentData() if hasattr(self, 'combo_despill_color') else 'green'
+        despill_mth = self.combo_despill_method.currentData() if hasattr(self, 'combo_despill_method') else 'average'
         return dict(
             outputs=outputs,
             format=self.format.currentData(),
             exr_dtype=self.exr_dtype.currentData(),
             despill=self.despill.value(),
+            despill_color=despill_col or self.combo_despill_color.currentText().lower(),
+            despill_method=despill_mth or self.combo_despill_method.currentText().lower(),
             cutout_linear=self.cutout_linear.isChecked(),
             hint_mode=self.hint_mode.currentData(),
             hint=self.hint.text().strip(),
@@ -3352,6 +3473,14 @@ class Window(QMainWindow):
         # 3. Despill & Cutout linear
         if "despill" in opts:
             self.despill.setValue(float(opts["despill"]))
+        if "despill_color" in opts and hasattr(self, "combo_despill_color"):
+            idx_c = self.combo_despill_color.findData(str(opts["despill_color"]).lower())
+            if idx_c >= 0:
+                self.combo_despill_color.setCurrentIndex(idx_c)
+        if "despill_method" in opts and hasattr(self, "combo_despill_method"):
+            idx_m = self.combo_despill_method.findData(str(opts["despill_method"]).lower())
+            if idx_m >= 0:
+                self.combo_despill_method.setCurrentIndex(idx_m)
         if "cutout_linear" in opts:
             self.cutout_linear.setChecked(bool(opts["cutout_linear"]))
 

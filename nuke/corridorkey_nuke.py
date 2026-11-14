@@ -124,6 +124,8 @@ def build_command_args(
     exr_dtype: str = "half",
     outputs: list[str] | None = None,
     despill_strength: float = 0.5,
+    despill_color: str = "green",
+    despill_method: str = "average",
     auto_vram: bool = True,
     low_vram: bool = False,
     hann_chunk: int = 0,
@@ -152,6 +154,12 @@ def build_command_args(
         "--exr_dtype", str(exr_dtype),
         "--despill_strength", f"{float(despill_strength):.2f}",
     ]
+
+    if str(despill_color).lower() in ("green", "blue") and str(despill_color).lower() != "green":
+        cmd.extend(["--despill_color", str(despill_color).lower()])
+
+    if str(despill_method).lower() in ("average", "max", "none") and str(despill_method).lower() != "average":
+        cmd.extend(["--despill_method", str(despill_method).lower()])
 
     if start_frame is not None:
         cmd.extend(["--start_frame", str(int(start_frame))])
@@ -488,6 +496,8 @@ def execute_keyer(node, preview_single_frame: bool = False) -> bool:
     output_format = node.knob("output_format").value() if node.knob("output_format") else "exr"
     exr_dtype = node.knob("exr_dtype").value() if node.knob("exr_dtype") else "half"
     despill = float(node.knob("despill_strength").value()) if node.knob("despill_strength") else 0.5
+    despill_col = str(node.knob("despill_color").value() if node.knob("despill_color") else "Green").lower()
+    despill_mth = str(node.knob("despill_method").value() if node.knob("despill_method") else "Average").lower()
     auto_vram = bool(node.knob("auto_vram").value()) if node.knob("auto_vram") else True
     low_vram = bool(node.knob("low_vram").value()) if node.knob("low_vram") else False
     hann_chunk = int(node.knob("hann_chunk").value()) if node.knob("hann_chunk") else 0
@@ -555,6 +565,8 @@ def execute_keyer(node, preview_single_frame: bool = False) -> bool:
         exr_dtype=exr_dtype,
         outputs=["alpha", "fg", "cutout"],
         despill_strength=despill,
+        despill_color=despill_col,
+        despill_method=despill_mth,
         auto_vram=auto_vram,
         low_vram=low_vram,
         hann_chunk=hann_chunk,
@@ -912,6 +924,12 @@ def create_corridorkeyer_node():
     despill.setRange(0.0, 1.0)
     despill.setValue(0.5)
     group.addKnob(despill)
+
+    despill_c = nuke.Enumeration_Knob("despill_color", "Despill Color", ["Green", "Blue"])
+    group.addKnob(despill_c)
+
+    despill_m = nuke.Enumeration_Knob("despill_method", "Despill Method", ["Average", "Max", "None"])
+    group.addKnob(despill_m)
 
     hint_q = nuke.Double_Knob("hint_quality", "Hint Quality (Trust)")
     hint_q.setRange(0.0, 1.0)

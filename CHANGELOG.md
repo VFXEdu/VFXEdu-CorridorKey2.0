@@ -6,6 +6,22 @@ GitHub 릴리즈 시 해당 버전의 내용이 릴리즈 노트 및 GUI 업데�
 
 ---
 
+## [v0.1.9] - 2026-11-14
+
+### 🚀 주요 업데이트 및 개선 내역 (Highlights)
+- **Model Scale (`0.75`, `0.50`, `0.25`) GPU 출력 리사이즈 완벽 구현**
+  - 4K/8K 고해상도 플레이트에서 VRAM 절약을 위해 `Model Scale`(`AI Plate Scale`)을 `1.0` 미만으로 설정했을 때 Stage 2 출력 단계에서 발생하던 `RuntimeError`를 해결했습니다. 이제 GPU 텐서 기반 Antialiased Bicubic 리사이즈를 통해 원본 해상도로 정확하고 빠르게 복원됩니다.
+- **블루스크린(`Blue Screen`) 및 `Max / Average / None` 디스필(Despill) 엔진 구현 (GUI & Nuke)**
+  - 기존 Green + Average 고정 방식에서 확장하여, 블루스크린(`Blue`) 촬영본과 `Max` / `Average` / `None` 디스필 알고리즘을 백엔드 GPU 텐서 연산(`runtime.py`), CLI(`--despill_color`, `--despill_method`), Desktop GUI, 그리고 Nuke 기즈모에 모두 완벽히 연결했습니다.
+- **Desktop GUI 이미지 시퀀스(`.exr`, `.png`, `.jpg`, `.tif`, `.dpx` 등) 업로드 및 프리뷰 완벽 지원**
+  - `+ Import` 파일 선택창 및 드래그 앤 드롭에서 이미지 시퀀스 프레임 파일을 직접 선택하거나 드롭하면 자동으로 시퀀스 폴더로 묶여서 로드되도록 개선했습니다.
+  - 시퀀스 로드 시 좌측 미디어 카드 썸네일/해상도/프레임 수 표시, 하단 16구간 필름스트립 타임라인, 중앙 VFX 뷰포트 실시간 스크러빙(EXR Scene-Linear → sRGB 자동 톤매핑 포함), Quick Brush 브러쉬 에디터 연동, 그리고 `.exr` 시퀀스 로드 시 `Scene-Linear Input` 자동 체크를 지원합니다.
+- **Desktop GUI Inspector 메모리/시간축 컨트롤 및 시퀀스 힌트 폴더(`--hint_video`) 연동**
+  - `Temporal Awareness` 체크박스/슬라이더와 `GPU Memory Limit` 드롭다운을 `Hann Window` 프리셋 및 실시간 VRAM 진단기에 양방향 동기화했습니다.
+  - `Full Video Hint (--hint_video)` 모드에서 동영상뿐만 아니라 연번 마스크 이미지 시퀀스 폴더도 바로 인식 및 선택할 수 있도록 개선했습니다.
+
+---
+
 ## [v0.1.8] - 2026-11-03
 
 ### 🚀 주요 업데이트 및 개선 내역 (Highlights)

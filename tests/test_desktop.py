@@ -554,6 +554,49 @@ class DesktopTests(unittest.TestCase):
         self.assertTrue(self.w.linear.isChecked(), "EXR sequence should auto-enable Scene-Linear Input")
         self.assertIsNotNone(self.w.viewport.orig_pixmap)
 
+    def test_v019_features_model_scale_despill_and_inspector_wiring(self):
+        """Verify model_scale GPU resize, blue/green & max/average/none despill, and Inspector UI wiring."""
+        import torch
+        from corridorkey.runtime import _resize_output_torch, _despill_average_srgb_torch
+
+        # 1. _resize_output_torch when model_scale != 1.0 (model_native_hw != output_hw)
+        t_in = torch.ones((2, 3, 270, 480), dtype=torch.float32)
+        meta = {"model_native_hw": (270, 480), "output_hw": (540, 960)}
+        t_out = _resize_output_torch(t_in, meta)
+        self.assertEqual(tuple(t_out.shape), (2, 3, 540, 960))
+
+        # 2. _despill_average_srgb_torch for green/blue and average/max/none
+        rgb_green = torch.tensor([[[[0.2, 0.9, 0.2]]]], dtype=torch.float32).permute(0, 3, 1, 2)
+        out_g_avg = _despill_average_srgb_torch(rgb_green.clone(), 1.0, color="green", method="average")
+        self.assertAlmostEqual(float(out_g_avg[0, 1, 0, 0]), 0.2, places=4)
+
+        rgb_blue = torch.tensor([[[[0.1, 0.3, 0.9]]]], dtype=torch.float32).permute(0, 3, 1, 2)
+        out_b_max = _despill_average_srgb_torch(rgb_blue.clone(), 1.0, color="blue", method="max")
+        self.assertAlmostEqual(float(out_b_max[0, 2, 0, 0]), 0.3, places=4)
+        out_b_none = _despill_average_srgb_torch(rgb_blue.clone(), 1.0, color="blue", method="none")
+        self.assertAlmostEqual(float(out_b_none[0, 2, 0, 0]), 0.9, places=4)
+
+        # 3. Inspector UI wiring (despill_color, despill_method, awareness, gpu_limit)
+        self.w.combo_despill_color.setCurrentIndex(1)  # Blue Screen
+        self.w.combo_despill_method.setCurrentIndex(1)  # Max
+        self.w.slider_time_awareness.setValue(1)  # Frame-by-frame (1_1)
+        self.assertEqual(self.w.hann_mode.currentData(), "1_1")
+        self.assertFalse(self.w.chk_awareness.isChecked())
+
+        self.w.slider_time_awareness.setValue(8)  # Max window (80_40)
+        self.assertEqual(self.w.hann_mode.currentData(), "80_40")
+        self.assertTrue(self.w.chk_awareness.isChecked())
+
+        opts = self.w.options()
+        self.assertEqual(opts.get("despill_color"), "blue")
+        self.assertEqual(opts.get("despill_method"), "max")
+
+        args = gui.make_arguments(Path(__file__), Path(self.temp.name) / "out_dir", opts)
+        self.assertIn("--despill_color", args)
+        self.assertEqual(args[args.index("--despill_color") + 1], "blue")
+        self.assertIn("--despill_method", args)
+        self.assertEqual(args[args.index("--despill_method") + 1], "max")
+
 
 if __name__ == '__main__':
     unittest.main()

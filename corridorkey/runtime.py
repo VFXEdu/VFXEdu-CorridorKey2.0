@@ -125,6 +125,8 @@ class InferenceConfig:
     frame_dir_linear: bool = False
     cutout_linear: bool = False
     despill_strength: float = 0.5
+    despill_color: str = "green"
+    despill_method: str = "average"
     output_format: str = "video"
     exr_dtype: str = "half"
     start_frame: int | None = None
@@ -608,11 +610,12 @@ def _crop_native_torch(x: torch.Tensor, meta: dict) -> torch.Tensor:
 
 
 def _resize_output_torch(x: torch.Tensor, meta: dict) -> torch.Tensor:
-    if tuple(meta["model_native_hw"]) == tuple(meta["output_hw"]):
+    out_hw = tuple(meta["output_hw"])
+    if tuple(meta["model_native_hw"]) == out_hw or tuple(x.shape[-2:]) == out_hw:
         return x
-    raise RuntimeError(
-        "optimized runtime render path requires native model_scale=1.0; "
-        "non-native scaling would need explicit Lanczos output rendering")
+    return F.interpolate(
+        x, size=out_hw, mode="bicubic", align_corners=False, antialias=True
+    )
 
 
 def _linear_adjust_inverse_torch(linear: torch.Tensor, meta: dict) -> torch.Tensor:
@@ -624,14 +627,27 @@ def _linear_adjust_inverse_torch(linear: torch.Tensor, meta: dict) -> torch.Tens
     return (linear / gain - pivot) / contrast + pivot
 
 
-def _despill_average_srgb_torch(fg: torch.Tensor, strength: float = 0.5) -> torch.Tensor:
-    if strength <= 0.0:
+def _despill_average_srgb_torch(
+    fg: torch.Tensor,
+    strength: float = 0.5,
+    color: str = "green",
+    method: str = "average",
+) -> torch.Tensor:
+    method_l = str(method or "average").lower()
+    if strength <= 0.0 or method_l == "none":
         return fg
+    color_l = str(color or "green").lower()
     r = fg[:, 0:1]
     g = fg[:, 1:2]
     b = fg[:, 2:3]
-    spill = (g - (r + b) * 0.5).clamp(min=0.0)
-    full = torch.cat([r + spill * 0.5, g - spill, b + spill * 0.5], dim=1)
+    if color_l == "blue":
+        ref = torch.maximum(r, g) if method_l == "max" else (r + g) * 0.5
+        spill = (b - ref).clamp(min=0.0)
+        full = torch.cat([r + spill * 0.25, g + spill * 0.5, b - spill], dim=1)
+    else:
+        ref = torch.maximum(r, b) if method_l == "max" else (r + b) * 0.5
+        spill = (g - ref).clamp(min=0.0)
+        full = torch.cat([r + spill * 0.5, g - spill, b + spill * 0.5], dim=1)
     if strength >= 1.0:
         return full
     return fg * (1.0 - strength) + full * strength
@@ -675,6 +691,8 @@ def _render_predictions_exr_torch(meta: dict, outputs: set[str],
     alpha_model = logits[:, 0:1].float()
     pa_model = _crop_native_torch(alpha_model, meta).clamp(0.0, 1.0)
     despill_strength = float(meta.get("despill_strength", 0.5))
+    despill_color = str(meta.get("despill_color", "green"))
+    despill_method = str(meta.get("despill_method", "average"))
 
     pa = _resize_output_torch(pa_model, meta).clamp(0.0, 1.0)
     rendered: dict[str, np.ndarray] = {}
@@ -693,14 +711,14 @@ def _render_predictions_exr_torch(meta: dict, outputs: set[str],
         rendered["fg"] = _chw_to_bgr_f32_cpu(pf_linear)
     if "cutout" in outputs:
         pf_linear_despilled = _despill_average_srgb_torch(
-            pf_linear, strength=despill_strength)
+            pf_linear, strength=despill_strength, color=despill_color, method=despill_method)
         rendered["cutout"] = _chw_to_bgra_f32_cpu(pf_linear_despilled, pa)
     if "checker" in outputs:
         checker_b = checker.to(device=pf_linear.device,
                                dtype=pf_linear.dtype).unsqueeze(0)
         bg_lin = cu.srgb_to_linear(checker_b)
         pf_despill = _despill_average_srgb_torch(
-            pf_linear, strength=despill_strength)
+            pf_linear, strength=despill_strength, color=despill_color, method=despill_method)
         comp_lin = pf_despill * pa + bg_lin * (1.0 - pa)
         rendered["checker"] = _chw_to_bgr_f32_cpu(comp_lin)
     return rendered
@@ -717,6 +735,8 @@ def _render_predictions_torch(meta: dict, outputs: set[str],
     alpha_model = logits[:, 0:1].float()
     pa_model = _crop_native_torch(alpha_model, meta).clamp(0.0, 1.0)
     despill_strength = float(meta.get("despill_strength", 0.5))
+    despill_color = str(meta.get("despill_color", "green"))
+    despill_method = str(meta.get("despill_method", "average"))
 
     pa = _resize_output_torch(pa_model, meta).clamp(0.0, 1.0)
     rendered: dict[str, np.ndarray] = {}
@@ -733,18 +753,21 @@ def _render_predictions_torch(meta: dict, outputs: set[str],
     if "fg" in outputs:
         rendered["fg"] = _srgb_to_bgr_uint16_cpu(pf)
     if "cutout" in outputs:
-        pf_linear_despilled = _despill_average_srgb_torch(pf_linear_pos, strength=despill_strength)
+        pf_linear_despilled = _despill_average_srgb_torch(
+            pf_linear_pos, strength=despill_strength, color=despill_color, method=despill_method)
         if meta.get("cutout_linear", False):
             pf_linear_despilled_resized = _resize_output_torch(pf_linear_despilled, meta).clamp(0.0, 1.0)
             rendered["cutout"] = _srgb_to_bgra_uint16_cpu(pf_linear_despilled_resized, pa)
         else:
-            pf_despill = _despill_average_srgb_torch(pf, strength=despill_strength)
+            pf_despill = _despill_average_srgb_torch(
+                pf, strength=despill_strength, color=despill_color, method=despill_method)
             rendered["cutout"] = _srgb_to_bgra_uint16_cpu(pf_despill, pa)
     if "checker" in outputs:
         checker_b = checker.to(device=pf.device, dtype=pf.dtype).unsqueeze(0)
         bg_lin = cu.srgb_to_linear(checker_b)
         alpha = pa
-        pf_despill = _despill_average_srgb_torch(pf, strength=despill_strength)
+        pf_despill = _despill_average_srgb_torch(
+            pf, strength=despill_strength, color=despill_color, method=despill_method)
         comp_despill_lin = (
             cu.srgb_to_linear(pf_despill) * alpha + bg_lin * (1.0 - alpha))
         comp_despill = cu.linear_to_srgb(
@@ -790,6 +813,8 @@ def run_inference(model, input_path: str, output_dir: str, cfg: InferenceConfig,
     H_out, W_out = meta["output_hw"]
     meta["cutout_linear"] = cfg.cutout_linear
     meta["despill_strength"] = cfg.despill_strength
+    meta["despill_color"] = cfg.despill_color
+    meta["despill_method"] = cfg.despill_method
     fps = float(meta["native_fps"])
     clip_name = raw_clip_name(input_path)
     checker = make_checker(H_out, W_out)
