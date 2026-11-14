@@ -515,6 +515,45 @@ class DesktopTests(unittest.TestCase):
         self.assertTrue(self.w.low_vram.isChecked())
         self.assertEqual(self.w.current_project_path, proj_file)
 
+    def test_image_sequence_import_and_viewport_scrubbing(self):
+        """Verify image sequences (.png and .exr) load via folder or individual frame files and scrub in viewport."""
+        # 1. Create a PNG sequence directory with 4 frames
+        png_dir = Path(self.temp.name) / "shot_png_seq"
+        png_dir.mkdir(parents=True, exist_ok=True)
+        for i in range(1, 5):
+            img = np.full((120, 160, 3), i * 50, dtype=np.uint8)
+            cv2.imwrite(str(png_dir / f"shot_{i:04d}.png"), img)
+
+        # 2. Create an EXR sequence directory with 3 frames
+        exr_dir = Path(self.temp.name) / "shot_exr_seq"
+        exr_dir.mkdir(parents=True, exist_ok=True)
+        for i in range(1, 4):
+            img = np.full((120, 160, 3), i * 0.25, dtype=np.float32)
+            cv2.imwrite(str(exr_dir / f"plate_{i:06d}.exr"), img)
+
+        self.w.clear_queue()
+
+        # Test importing PNG sequence by selecting individual frame files (like + Import or Drag & Drop)
+        self.w.add_paths([str(png_dir / "shot_0001.png"), str(png_dir / "shot_0002.png")])
+        self.assertEqual(self.w.queue.count(), 1, "Multiple frames in same folder should deduplicate to 1 sequence item")
+        self.assertEqual(Path(self.w.queue.item(0).text()).resolve(), png_dir.resolve())
+        self.assertEqual(self.w.filmstrip.total_frames, 4)
+        self.assertTrue(len(self.w.filmstrip.thumbnails) > 0)
+        self.assertIsNotNone(self.w.viewport.orig_pixmap)
+        self.assertIsNotNone(self.w.original.current_rgb_frame)
+
+        # Scrub to frame index 2
+        self.w.show_frame_in_viewport(2)
+        self.assertIsNotNone(self.w.original.current_rgb_frame)
+        self.assertEqual(int(self.w.original.current_rgb_frame[0, 0, 0]), 150)
+
+        # Test importing EXR sequence by folder
+        self.w.add_paths([str(exr_dir)])
+        self.assertEqual(self.w.queue.count(), 2)
+        self.assertEqual(self.w.filmstrip.total_frames, 3)
+        self.assertTrue(self.w.linear.isChecked(), "EXR sequence should auto-enable Scene-Linear Input")
+        self.assertIsNotNone(self.w.viewport.orig_pixmap)
+
 
 if __name__ == '__main__':
     unittest.main()

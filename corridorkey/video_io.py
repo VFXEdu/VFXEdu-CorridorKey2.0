@@ -98,10 +98,23 @@ def raw_clip_name(path: str | os.PathLike) -> str:
     return name
 
 
+_SEQ_IMAGE_EXTS = {".exr", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp", ".dpx"}
+
+
 def frame_paths(frame_dir: str | os.PathLike) -> list[str]:
+    d = Path(frame_dir)
+    if not d.is_dir():
+        return []
     paths: list[str] = []
-    for ext in ("*.exr", "*.png", "*.jpg", "*.jpeg"):
-        paths.extend(glob.glob(os.path.join(str(frame_dir), ext)))
+    try:
+        for p in d.iterdir():
+            if p.is_file() and p.suffix.lower() in _SEQ_IMAGE_EXTS:
+                stem_l = p.stem.lower()
+                if "framehint" in stem_l or "alphahint" in stem_l:
+                    continue
+                paths.append(str(p))
+    except OSError:
+        pass
     return sorted(paths)
 
 
@@ -163,17 +176,49 @@ def read_image_rgb(path: str | os.PathLike):
     if path.lower().endswith(".exr"):
         img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
         if img is None:
+            try:
+                data = np.fromfile(path, dtype=np.uint8)
+                if len(data) > 0:
+                    img = cv2.imdecode(data, cv2.IMREAD_UNCHANGED)
+            except Exception:
+                pass
+        if img is None:
             raise FileNotFoundError(path)
         img = img.astype(np.float32, copy=False)
-        if img.ndim == 3 and img.shape[2] == 4:
-            img = img[:, :, :3]
-        if img.ndim == 3:
+        if img.ndim == 2:
+            img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+        elif img.ndim == 3 and img.shape[2] == 4:
+            img = cv2.cvtColor(img[:, :, :3], cv2.COLOR_BGR2RGB)
+        elif img.ndim == 3:
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         return img
-    img = cv2.imread(path, cv2.IMREAD_COLOR)
+
+    img = None
+    try:
+        data = np.fromfile(path, dtype=np.uint8)
+        if len(data) > 0:
+            img = cv2.imdecode(data, cv2.IMREAD_UNCHANGED)
+    except Exception:
+        pass
+    if img is None:
+        img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
     if img is None:
         raise FileNotFoundError(path)
-    return cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+
+    if img.dtype == np.uint16:
+        img = img.astype(np.float32) / 65535.0
+    elif np.issubdtype(img.dtype, np.floating):
+        img = img.astype(np.float32, copy=False)
+    else:
+        img = img.astype(np.float32) / 255.0
+
+    if img.ndim == 2:
+        img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+    elif img.ndim == 3 and img.shape[2] == 4:
+        img = cv2.cvtColor(img[:, :, :3], cv2.COLOR_BGR2RGB)
+    elif img.ndim == 3:
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    return img
 
 
 def read_hint_image(path: str | os.PathLike) -> np.ndarray:

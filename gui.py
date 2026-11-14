@@ -116,6 +116,59 @@ VIDEO_EXTS = {'.mp4', '.mov', '.mkv', '.avi', '.webm', '.m4v'}
 IMAGE_EXTS = {'.png', '.jpg', '.jpeg', '.exr', '.tiff', '.tif', '.webp', '.dpx'}
 
 
+def _list_sequence_frames(folder: Path) -> list[Path]:
+    """Return sorted sequence image frames inside folder, excluding companion hint files."""
+    if not folder.is_dir():
+        return []
+    frames: list[Path] = []
+    try:
+        for p in folder.iterdir():
+            if p.is_file() and p.suffix.lower() in IMAGE_EXTS:
+                stem_l = p.stem.lower()
+                if "framehint" in stem_l or "alphahint" in stem_l:
+                    continue
+                frames.append(p)
+    except OSError:
+        pass
+    return sorted(frames)
+
+
+def _decode_sequence_frame_bgr(frame_path: Path, is_linear_exr: bool | None = None) -> np.ndarray | None:
+    """Decode an image sequence frame (.exr, .png, .jpg, .tif, etc.) into an 8-bit BGR ndarray for UI preview."""
+    p_str = str(frame_path)
+    img = None
+    if p_str.lower().endswith(".exr"):
+        img = cv2.imread(p_str, cv2.IMREAD_UNCHANGED)
+    if img is None:
+        try:
+            data = np.fromfile(p_str, dtype=np.uint8)
+            if len(data) > 0:
+                img = cv2.imdecode(data, cv2.IMREAD_UNCHANGED)
+        except Exception:
+            pass
+    if img is None:
+        img = cv2.imread(p_str, cv2.IMREAD_UNCHANGED)
+    if img is None:
+        return None
+
+    if np.issubdtype(img.dtype, np.floating):
+        use_linear = (p_str.lower().endswith(".exr")) if is_linear_exr is None else is_linear_exr
+        arr = np.clip(np.nan_to_num(img, nan=0.0, posinf=1.0, neginf=0.0), 0.0, 1.0)
+        if use_linear:
+            arr = np.power(arr, 1.0 / 2.2)
+        img = (arr * 255.0).astype(np.uint8)
+    elif img.dtype == np.uint16:
+        img = (img / 257).astype(np.uint8)
+    elif img.dtype != np.uint8:
+        img = np.clip(img, 0, 255).astype(np.uint8)
+
+    if img.ndim == 2:
+        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    elif img.ndim == 3 and img.shape[2] == 4:
+        img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+    return img
+
+
 class _NvmlMemory(ctypes.Structure):
     _fields_ = [
         ("total", ctypes.c_ulonglong),
@@ -185,26 +238,35 @@ def get_system_telemetry() -> str:
 
 
 def find_first_frame_hint(input_path: Path) -> Path | None:
-    """Locate companion first-frame hint image next to input (<clip>FrameHint.png)."""
-    parent_dir = input_path.parent
+    """Locate companion first-frame hint image next to input (<clip>FrameHint.png) or inside sequence folder."""
     base_name = input_path.stem.lower()
     allowed_exts = {'.png', '.jpg', '.jpeg', '.exr'}
 
-    if not parent_dir.exists():
-        return None
+    search_dirs = [input_path.parent]
+    if input_path.is_dir():
+        search_dirs.append(input_path)
 
     frame_hints = []
     legacy_hints = []
-    for item in sorted(parent_dir.iterdir()):
-        if item.is_file() and item.suffix.lower() in allowed_exts:
-            name_lower = item.stem.lower()
-            if not name_lower.startswith(base_name):
-                continue
-            remainder = name_lower[len(base_name):].lstrip("_- ")
-            if remainder.startswith("framehint"):
-                frame_hints.append(item)
-            elif remainder.startswith("alphahint"):
-                legacy_hints.append(item)
+    for s_dir in search_dirs:
+        if not s_dir.exists():
+            continue
+        for item in sorted(s_dir.iterdir()):
+            if item.is_file() and item.suffix.lower() in allowed_exts:
+                name_lower = item.stem.lower()
+                if s_dir == input_path and ("framehint" in name_lower or "alphahint" in name_lower):
+                    if "framehint" in name_lower:
+                        frame_hints.append(item)
+                    else:
+                        legacy_hints.append(item)
+                    continue
+                if not name_lower.startswith(base_name):
+                    continue
+                remainder = name_lower[len(base_name):].lstrip("_- ")
+                if remainder.startswith("framehint"):
+                    frame_hints.append(item)
+                elif remainder.startswith("alphahint"):
+                    legacy_hints.append(item)
 
     hint_files = frame_hints or legacy_hints
     return hint_files[0] if hint_files else None
@@ -852,7 +914,7 @@ class Preview(QGroupBox):
         self.frames = []
         count = 0
         if self.path.is_dir():
-            self.frames = sorted(p for p in self.path.iterdir() if p.suffix.lower() in IMAGE_EXTS)
+            self.frames = _list_sequence_frames(self.path)
             count = len(self.frames)
         elif self.path.is_file():
             cap = cv2.VideoCapture(str(self.path))
@@ -875,16 +937,7 @@ class Preview(QGroupBox):
             frame = None
             if self.path.is_dir():
                 if 0 <= index < len(self.frames):
-                    frame = cv2.imdecode(np.fromfile(self.frames[index], dtype=np.uint8), cv2.IMREAD_UNCHANGED)
-                    if frame is not None:
-                        if np.issubdtype(frame.dtype, np.floating):
-                            frame = (np.power(np.clip(np.nan_to_num(frame), 0, 1), 1 / 2.2) * 255).astype(np.uint8)
-                        elif frame.dtype == np.uint16:
-                            frame = (frame / 257).astype(np.uint8)
-                        if frame.ndim == 2:
-                            frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
-                        elif frame.shape[2] == 4:
-                            frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+                    frame = _decode_sequence_frame_bgr(self.frames[index])
             else:
                 cap = cv2.VideoCapture(str(self.path))
                 cap.set(cv2.CAP_PROP_POS_FRAMES, index)
@@ -2215,6 +2268,37 @@ class Window(QMainWindow):
             fps = meta['fps']
             w, h = meta['w'], meta['h']
             thumbs = meta['thumbs']
+        elif clip_path.is_dir():
+            seq_frames = _list_sequence_frames(clip_path)
+            n_frames = len(seq_frames)
+            fps = float(self.fps.value()) if hasattr(self, 'fps') else 24.0
+            w, h = 1920, 1080
+            thumbs = []
+            f0_pix = None
+            f0_rgb = None
+            if n_frames > 0:
+                f0 = _decode_sequence_frame_bgr(seq_frames[0], is_linear_exr=self.linear.isChecked() if hasattr(self, 'linear') else None)
+                if f0 is not None:
+                    h, w = f0.shape[:2]
+                    f0_rgb = cv2.cvtColor(f0, cv2.COLOR_BGR2RGB)
+                    f0_pix = QPixmap.fromImage(QImage(f0_rgb.data, w, h, f0_rgb.strides[0], QImage.Format_RGB888).copy())
+                step = max(1, n_frames // 16)
+                for idx in range(0, n_frames, step)[:16]:
+                    ft = f0 if idx == 0 else _decode_sequence_frame_bgr(seq_frames[idx], is_linear_exr=self.linear.isChecked() if hasattr(self, 'linear') else None)
+                    if ft is not None:
+                        rgb_small = cv2.cvtColor(cv2.resize(ft, (80, 45)), cv2.COLOR_BGR2RGB)
+                        q_img = QImage(rgb_small.data, 80, 45, rgb_small.strides[0], QImage.Format_RGB888).copy()
+                        thumbs.append(QPixmap.fromImage(q_img))
+            self._clip_cache[clip_key] = {
+                'n_frames': n_frames,
+                'fps': fps,
+                'w': w,
+                'h': h,
+                'thumbs': thumbs,
+                'f0_pix': f0_pix,
+                'f0_rgb': f0_rgb,
+                'seq_frames': seq_frames,
+            }
         else:
             cap = cv2.VideoCapture(str(clip_path))
             n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -2268,11 +2352,16 @@ class Window(QMainWindow):
                 if base in item.name.lower():
                     if item.is_dir():
                         for f in item.iterdir():
+                            nl = f.name.lower()
                             if f.is_file() and f.suffix.lower() in VIDEO_EXTS:
-                                nl = f.name.lower()
                                 if 'checker' in nl or 'comp' in nl:
                                     self.matched_results['comp'] = f
                                 elif 'alpha' in nl:
+                                    self.matched_results['alpha'] = f
+                            elif f.is_dir() and _list_sequence_frames(f):
+                                if nl in ('checker', 'comp', 'cutout', 'fg'):
+                                    self.matched_results.setdefault('comp', f)
+                                elif nl == 'alpha':
                                     self.matched_results['alpha'] = f
                     elif item.is_file() and item.suffix.lower() in VIDEO_EXTS:
                         nl = item.name.lower()
@@ -2330,25 +2419,41 @@ class Window(QMainWindow):
             return
 
         clip_path = self.current_clip_path
-
-        # 1. Maintain persistent VideoCapture stream for original video
-        if self._cap_orig_path != clip_path or self._cap_orig is None:
-            if self._cap_orig is not None:
-                self._cap_orig.release()
-            self._cap_orig = cv2.VideoCapture(str(clip_path))
-            self._cap_orig_path = clip_path
-            self._cap_orig_pos = 0
-
-        # High-speed read (sequential read does not require GOP seek!)
         f = None
         ok = False
-        if self._cap_orig_pos == frame_idx:
-            ok, f = self._cap_orig.read()
-            self._cap_orig_pos += 1
+
+        # 1. Decode original frame (either from Image Sequence Directory or Video file)
+        if clip_path.is_dir():
+            clip_key = str(clip_path.resolve())
+            meta = self._clip_cache.get(clip_key, {})
+            seq_frames = meta.get('seq_frames')
+            if not seq_frames:
+                seq_frames = _list_sequence_frames(clip_path)
+                if clip_key in self._clip_cache:
+                    self._clip_cache[clip_key]['seq_frames'] = seq_frames
+            if seq_frames:
+                idx_clamped = max(0, min(frame_idx, len(seq_frames) - 1))
+                f = _decode_sequence_frame_bgr(
+                    seq_frames[idx_clamped],
+                    is_linear_exr=self.linear.isChecked() if hasattr(self, 'linear') else None
+                )
+                ok = (f is not None)
         else:
-            self._cap_orig.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-            ok, f = self._cap_orig.read()
-            self._cap_orig_pos = frame_idx + 1 if ok else -1
+            if self._cap_orig_path != clip_path or self._cap_orig is None:
+                if self._cap_orig is not None:
+                    self._cap_orig.release()
+                self._cap_orig = cv2.VideoCapture(str(clip_path))
+                self._cap_orig_path = clip_path
+                self._cap_orig_pos = 0
+
+            # High-speed read (sequential read does not require GOP seek!)
+            if self._cap_orig_pos == frame_idx:
+                ok, f = self._cap_orig.read()
+                self._cap_orig_pos += 1
+            else:
+                self._cap_orig.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+                ok, f = self._cap_orig.read()
+                self._cap_orig_pos = frame_idx + 1 if ok else -1
 
         if not ok or f is None:
             return
@@ -2359,25 +2464,34 @@ class Window(QMainWindow):
         orig_pix = QPixmap.fromImage(QImage(rgb.data, w, h, rgb.strides[0], QImage.Format_RGB888).copy())
         self.original.pixmap = orig_pix
 
-        # 2. Maintain persistent stream for result video (composite or alpha)
+        # 2. Maintain persistent stream for result video/sequence (composite or alpha)
         comp_pix = None
         alpha_pix = None
         res_path = self.matched_results.get('comp') or self.matched_results.get('alpha')
         if res_path and res_path.exists():
-            if self._cap_res_path != res_path or self._cap_res is None:
-                if self._cap_res is not None:
-                    self._cap_res.release()
-                self._cap_res = cv2.VideoCapture(str(res_path))
-                self._cap_res_path = res_path
-                self._cap_res_pos = 0
-
-            if self._cap_res_pos == frame_idx:
-                ok_res, f_res = self._cap_res.read()
-                self._cap_res_pos += 1
+            ok_res = False
+            f_res = None
+            if res_path.is_dir():
+                res_frames = _list_sequence_frames(res_path)
+                if res_frames:
+                    idx_r = max(0, min(frame_idx, len(res_frames) - 1))
+                    f_res = _decode_sequence_frame_bgr(res_frames[idx_r], is_linear_exr=True)
+                    ok_res = (f_res is not None)
             else:
-                self._cap_res.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-                ok_res, f_res = self._cap_res.read()
-                self._cap_res_pos = frame_idx + 1 if ok_res else -1
+                if self._cap_res_path != res_path or self._cap_res is None:
+                    if self._cap_res is not None:
+                        self._cap_res.release()
+                    self._cap_res = cv2.VideoCapture(str(res_path))
+                    self._cap_res_path = res_path
+                    self._cap_res_pos = 0
+
+                if self._cap_res_pos == frame_idx:
+                    ok_res, f_res = self._cap_res.read()
+                    self._cap_res_pos += 1
+                else:
+                    self._cap_res.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+                    ok_res, f_res = self._cap_res.read()
+                    self._cap_res_pos = frame_idx + 1 if ok_res else -1
 
             if ok_res and f_res is not None:
                 rgb_res = cv2.cvtColor(f_res, cv2.COLOR_BGR2RGB)
@@ -2387,20 +2501,29 @@ class Window(QMainWindow):
         # 3. Maintain persistent stream for standalone alpha channel
         alpha_path = self.matched_results.get('alpha')
         if alpha_path and alpha_path.exists():
-            if self._cap_alpha_path != alpha_path or self._cap_alpha is None:
-                if self._cap_alpha is not None:
-                    self._cap_alpha.release()
-                self._cap_alpha = cv2.VideoCapture(str(alpha_path))
-                self._cap_alpha_path = alpha_path
-                self._cap_alpha_pos = 0
-
-            if self._cap_alpha_pos == frame_idx:
-                ok_a, f_a = self._cap_alpha.read()
-                self._cap_alpha_pos += 1
+            ok_a = False
+            f_a = None
+            if alpha_path.is_dir():
+                alpha_frames = _list_sequence_frames(alpha_path)
+                if alpha_frames:
+                    idx_a = max(0, min(frame_idx, len(alpha_frames) - 1))
+                    f_a = _decode_sequence_frame_bgr(alpha_frames[idx_a], is_linear_exr=False)
+                    ok_a = (f_a is not None)
             else:
-                self._cap_alpha.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-                ok_a, f_a = self._cap_alpha.read()
-                self._cap_alpha_pos = frame_idx + 1 if ok_a else -1
+                if self._cap_alpha_path != alpha_path or self._cap_alpha is None:
+                    if self._cap_alpha is not None:
+                        self._cap_alpha.release()
+                    self._cap_alpha = cv2.VideoCapture(str(alpha_path))
+                    self._cap_alpha_path = alpha_path
+                    self._cap_alpha_pos = 0
+
+                if self._cap_alpha_pos == frame_idx:
+                    ok_a, f_a = self._cap_alpha.read()
+                    self._cap_alpha_pos += 1
+                else:
+                    self._cap_alpha.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+                    ok_a, f_a = self._cap_alpha.read()
+                    self._cap_alpha_pos = frame_idx + 1 if ok_a else -1
 
             if ok_a and f_a is not None:
                 rgb_a = cv2.cvtColor(f_a, cv2.COLOR_BGR2RGB)
@@ -2807,11 +2930,48 @@ class Window(QMainWindow):
         return widget
 
     def add_paths(self, paths: list[str]):
-        existing = {self.queue.item(i).text() for i in range(self.queue.count())}
+        existing = {str(Path(self.queue.item(i).text()).resolve()) for i in range(self.queue.count())}
         added = []
-        for path in paths:
-            p = Path(path)
-            if p.exists() and (p.is_dir() or p.suffix.lower() in VIDEO_EXTS) and str(p) not in existing:
+
+        # Normalize input paths:
+        # - If user selects or drops individual image sequence files (.exr, .png, .jpg, .tif, etc.),
+        #   automatically resolve to their parent sequence directory!
+        # - If user selects a parent folder that contains sequence subfolders, expand them.
+        normalized_paths: list[Path] = []
+        for raw_path in paths:
+            if not raw_path:
+                continue
+            p = Path(raw_path)
+            if not p.exists():
+                continue
+            if p.is_file():
+                sfx = p.suffix.lower()
+                if sfx in VIDEO_EXTS:
+                    normalized_paths.append(p)
+                elif sfx in IMAGE_EXTS:
+                    normalized_paths.append(p.parent)
+            elif p.is_dir():
+                if _list_sequence_frames(p):
+                    normalized_paths.append(p)
+                else:
+                    # Check immediate subdirectories for sequence folders or videos
+                    sub_added = False
+                    try:
+                        for sub in sorted(p.iterdir()):
+                            if sub.is_dir() and _list_sequence_frames(sub):
+                                normalized_paths.append(sub)
+                                sub_added = True
+                            elif sub.is_file() and sub.suffix.lower() in VIDEO_EXTS:
+                                normalized_paths.append(sub)
+                                sub_added = True
+                    except OSError:
+                        pass
+                    if not sub_added:
+                        normalized_paths.append(p)
+
+        for p in normalized_paths:
+            p_res_str = str(p.resolve())
+            if p.exists() and (p.is_dir() or p.suffix.lower() in VIDEO_EXTS) and p_res_str not in existing:
                 item = QListWidgetItem(str(p), self.queue)
                 card = MediaCardWidget(p)
                 # Ensure clicking anywhere on the card immediately selects the row smoothly
@@ -2819,7 +2979,7 @@ class Window(QMainWindow):
                 item.setSizeHint(card.sizeHint())
                 self.queue.addItem(item)
                 self.queue.setItemWidget(item, card)
-                existing.add(str(p))
+                existing.add(p_res_str)
                 added.append(p)
 
                 # Extract metadata & filmstrip thumbnails ahead of time for instantaneous switching
@@ -2855,7 +3015,7 @@ class Window(QMainWindow):
                                     qt = QImage(rgbt.data, 80, 45, rgbt.strides[0], QImage.Format_RGB888).copy()
                                     thumbs.append(QPixmap.fromImage(qt))
                     cap.release()
-                    self._clip_cache[str(p.resolve())] = {
+                    self._clip_cache[p_res_str] = {
                         'n_frames': n,
                         'fps': fps,
                         'w': w,
@@ -2863,6 +3023,55 @@ class Window(QMainWindow):
                         'thumbs': thumbs,
                         'f0_pix': f0_pix,
                         'f0_rgb': f0_rgb,
+                    }
+                elif p.is_dir():
+                    seq_frames = _list_sequence_frames(p)
+                    n = len(seq_frames)
+                    fps = float(self.fps.value()) if hasattr(self, 'fps') else 24.0
+                    w, h = 1920, 1080
+                    thumbs = []
+                    f0_pix = None
+                    f0_rgb = None
+                    if n > 0:
+                        is_exr_seq = (seq_frames[0].suffix.lower() == '.exr')
+                        if is_exr_seq and hasattr(self, 'linear'):
+                            self.linear.setChecked(True)
+                        f0 = _decode_sequence_frame_bgr(seq_frames[0], is_linear_exr=is_exr_seq)
+                        if f0 is not None:
+                            h, w = f0.shape[:2]
+                            res_str = "UHD" if w >= 3840 else ("FHD" if w >= 1920 else f"{w}x{h}")
+                            ext_tag = seq_frames[0].suffix.upper().lstrip('.')
+                            f0_rgb = cv2.cvtColor(f0, cv2.COLOR_BGR2RGB)
+                            rgb_small = cv2.resize(f0_rgb, (96, 60))
+                            q0 = QImage(rgb_small.data, 96, 60, rgb_small.strides[0], QImage.Format_RGB888).copy()
+                            card.set_thumbnail_and_specs(QPixmap.fromImage(q0), n, f"{res_str} {ext_tag}", fps)
+
+                            f0_pix = QPixmap.fromImage(QImage(f0_rgb.data, w, h, f0_rgb.strides[0], QImage.Format_RGB888).copy())
+                            rgb_thumb0 = cv2.resize(f0_rgb, (80, 45))
+                            thumbs.append(QPixmap.fromImage(QImage(rgb_thumb0.data, 80, 45, rgb_thumb0.strides[0], QImage.Format_RGB888).copy()))
+
+                            if n > 1:
+                                step = max(1, n // 16)
+                                for idx in range(step, n, step)[:15]:
+                                    ft = _decode_sequence_frame_bgr(seq_frames[idx], is_linear_exr=is_exr_seq)
+                                    if ft is not None:
+                                        rgbt = cv2.cvtColor(cv2.resize(ft, (80, 45)), cv2.COLOR_BGR2RGB)
+                                        qt = QImage(rgbt.data, 80, 45, rgbt.strides[0], QImage.Format_RGB888).copy()
+                                        thumbs.append(QPixmap.fromImage(qt))
+                        else:
+                            card.lbl_specs.setText(f"{n} frames (Sequence)")
+                    else:
+                        card.lbl_specs.setText("0 frames (Empty Folder)")
+
+                    self._clip_cache[p_res_str] = {
+                        'n_frames': n,
+                        'fps': fps,
+                        'w': w,
+                        'h': h,
+                        'thumbs': thumbs,
+                        'f0_pix': f0_pix,
+                        'f0_rgb': f0_rgb,
+                        'seq_frames': seq_frames,
                     }
 
         if added:
@@ -2894,7 +3103,15 @@ class Window(QMainWindow):
         self.hint.setText("")
 
     def add_videos(self):
-        paths, _ = QFileDialog.getOpenFileNames(self, tr('dlg_select_videos'), '', 'Video (*.mp4 *.mov *.mkv *.avi *.webm *.m4v)')
+        paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            tr('dlg_select_videos'),
+            '',
+            'Media & Sequences (*.mp4 *.mov *.mkv *.avi *.webm *.m4v *.exr *.png *.jpg *.jpeg *.tif *.tiff *.webp *.dpx);;'
+            'Video (*.mp4 *.mov *.mkv *.avi *.webm *.m4v);;'
+            'Image Sequence (*.exr *.png *.jpg *.jpeg *.tif *.tiff *.webp *.dpx);;'
+            'All Files (*.*)'
+        )
         if paths:
             self.add_paths(paths)
 
