@@ -53,6 +53,36 @@ function Create()
         INP_MaxScale = 1.0,
     })
 
+    InDespillColor = self:AddInput("Despill Screen Color", "DespillColor", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "ComboControl",
+        INP_Default = 0.0,
+        INP_Integer = true,
+        { CCS_AddString = "Green Screen" },
+        { CCS_AddString = "Blue Screen" },
+    })
+
+    InDespillMethod = self:AddInput("Despill Method", "DespillMethod", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "ComboControl",
+        INP_Default = 0.0,
+        INP_Integer = true,
+        { CCS_AddString = "Average (Balanced)" },
+        { CCS_AddString = "Max (Strong)" },
+        { CCS_AddString = "None (Raw FG)" },
+    })
+
+    InModelScale = self:AddInput("AI Plate Scale", "ModelScale", {
+        LINKID_DataType = "Number",
+        INPID_InputControl = "ComboControl",
+        INP_Default = 0.0,
+        INP_Integer = true,
+        { CCS_AddString = "1.0 (Full Native)" },
+        { CCS_AddString = "0.75 (High Quality)" },
+        { CCS_AddString = "0.50 (Half Proxy - 4K)" },
+        { CCS_AddString = "0.25 (Quarter Proxy - 8K)" },
+    })
+
     InFormat = self:AddInput("Output Format", "OutputFormat", {
         LINKID_DataType = "Number",
         INPID_InputControl = "ComboControl",
@@ -103,14 +133,27 @@ function NotifyChanged(inp, param, time)
         if inp == InRender then
             local node_name = self.Name
             local despill = 0.5
+            local despill_color_idx = 0
+            local despill_method_idx = 0
+            local model_scale_idx = 0
             local fmt = 0
             local low_vram = 0
 
             pcall(function()
                 despill = self.DespillStrength[time or 0] or 0.5
+                despill_color_idx = self.DespillColor[time or 0] or 0
+                despill_method_idx = self.DespillMethod[time or 0] or 0
+                model_scale_idx = self.ModelScale[time or 0] or 0
                 fmt = self.OutputFormat[time or 0] or 0
                 low_vram = self.ForceLowVRAM[time or 0] or 0
             end)
+
+            local color_map = { [0] = "green", [1] = "blue" }
+            local method_map = { [0] = "average", [1] = "max", [2] = "none" }
+            local scale_map = { [0] = 1.0, [1] = 0.75, [2] = 0.50, [3] = 0.25 }
+            local despill_color = color_map[math.floor(despill_color_idx + 0.5)] or "green"
+            local despill_method = method_map[math.floor(despill_method_idx + 0.5)] or "average"
+            local model_scale = scale_map[math.floor(model_scale_idx + 0.5)] or 1.0
 
             InStatus:SetAttrs({ LINKS_Name = "Status: 🚀 Launching AI Keyer..." })
 
@@ -122,8 +165,6 @@ function NotifyChanged(inp, param, time)
             else
                 local candidates = {
                     os.getenv("CORRIDORKEY_ROOT") or "",
-                    [[K:/Pateron/CorridorKeyer2.0_Portable]],
-                    [[K:/________________VFXEdu_Script/CorridorKeyer2.0]],
                     [[C:/CorridorKey2.0]],
                 }
                 for _, c in ipairs(candidates) do
@@ -145,8 +186,6 @@ function NotifyChanged(inp, param, time)
             local py_candidates = {
                 { exe = root .. "/venv/Scripts/python.exe", torch = root .. "/venv/Lib/site-packages/torch/__init__.py" },
                 { exe = root .. "/python_embed/python.exe", torch = root .. "/python_embed/Lib/site-packages/torch/__init__.py" },
-                { exe = [[K:/Pateron/CorridorKeyer2.0_Portable/python_embed/python.exe]], torch = [[K:/Pateron/CorridorKeyer2.0_Portable/python_embed/Lib/site-packages/torch/__init__.py]] },
-                { exe = [[K:/________________VFXEdu_Script/CorridorKeyer2.0/venv/Scripts/python.exe]], torch = [[K:/________________VFXEdu_Script/CorridorKeyer2.0/venv/Lib/site-packages/torch/__init__.py]] },
             }
 
             for _, cand in ipairs(py_candidates) do
@@ -180,8 +219,10 @@ function NotifyChanged(inp, param, time)
             local win_py = py_exe:gsub("/", "\\")
             local win_script = script_path:gsub("/", "\\")
 
-            local cmd = string.format('start "CorridorKey AI" "%s" "%s" --node "%s" --despill %.2f --fmt %d --low-vram %d',
-                win_py, win_script, node_name, despill, fmt, low_vram)
+            local cmd = string.format(
+                'start "CorridorKey AI" "%s" "%s" --node "%s" --despill %.2f --despill-color %s --despill-method %s --model-scale %.2f --fmt %d --low-vram %d',
+                win_py, win_script, node_name, despill, despill_color, despill_method, model_scale, fmt, low_vram
+            )
             os.execute(cmd)
 
         elseif inp == InOpenFolder then

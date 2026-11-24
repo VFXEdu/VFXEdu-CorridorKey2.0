@@ -105,6 +105,7 @@ class InferenceConfig:
     shape_quantum: int = 128
     model_scale: float = 1.0
     num_frames: int = -1
+    start_offset: int | None = None
     start_mode: str = "begin"
     seed: int = 0
     low_vram: bool = False
@@ -544,8 +545,11 @@ def hann_stage1_stream(model, source, meta, *, reader_cls, reader_kind: str,
             else:
                 moge_feat = torch.from_numpy(np.asarray(moge_map[t0:t1]).copy())
                 moge_feat = moge_feat.unsqueeze(0).to(device, non_blocking=True).float()
-                cradio_feat = torch.from_numpy(np.asarray(cradio_map[t0:t1]).copy())
-                cradio_feat = cradio_feat.unsqueeze(0).to(device, non_blocking=True).float()
+                if cradio_map is not None:
+                    cradio_feat = torch.from_numpy(np.asarray(cradio_map[t0:t1]).copy())
+                    cradio_feat = cradio_feat.unsqueeze(0).to(device, non_blocking=True).float()
+                else:
+                    cradio_feat = None
             rvm_feat = None
             if rvm_map is not None:
                 rvm_feat = torch.from_numpy(np.asarray(rvm_map[t0:t1]).copy())
@@ -790,7 +794,11 @@ def run_inference(model, input_path: str, output_dir: str, cfg: InferenceConfig,
         meta = probe_frame_dir_meta(
             input_path, num_frames=cfg.num_frames,
             shape_quantum=cfg.shape_quantum, fps=cfg.frame_dir_fps,
-            exr_linear=cfg.frame_dir_linear, model_scale=cfg.model_scale)
+            exr_linear=cfg.frame_dir_linear, model_scale=cfg.model_scale,
+            start_offset=cfg.start_offset,
+            linear_brightness=cfg.linear_brightness,
+            linear_contrast=cfg.linear_contrast,
+            linear_contrast_pivot=cfg.linear_contrast_pivot)
         if (not cfg.frame_dir_linear
                 and meta["frame_paths"]
                 and meta["frame_paths"][0].lower().endswith(".exr")):
@@ -805,7 +813,8 @@ def run_inference(model, input_path: str, output_dir: str, cfg: InferenceConfig,
             model_scale=cfg.model_scale,
             linear_brightness=cfg.linear_brightness,
             linear_contrast=cfg.linear_contrast,
-            linear_contrast_pivot=cfg.linear_contrast_pivot)
+            linear_contrast_pivot=cfg.linear_contrast_pivot,
+            start_offset=cfg.start_offset)
     T_all = int(meta["num_frames"])
     H, W = meta["shape_hw"]
     if cfg.auto_vram:
@@ -859,7 +868,7 @@ def run_inference(model, input_path: str, output_dir: str, cfg: InferenceConfig,
         # Write settings log file in the output folder
         settings_path = os.path.join(output_dir, f"{clip_name}_settings.txt")
         try:
-            with open(settings_path, "w") as sf:
+            with open(settings_path, "w", encoding="utf-8") as sf:
                 sf.write(f"CorridorKey v2 Inference Settings Log\n")
                 sf.write(f"====================================\n")
                 sf.write(f"Input: {input_path}\n")
@@ -876,6 +885,8 @@ def run_inference(model, input_path: str, output_dir: str, cfg: InferenceConfig,
                 sf.write(f"Carry Hint: {cfg.carry_hint}\n")
                 sf.write(f"Carry Hint Quality: {cfg.carry_hint_quality}\n")
                 sf.write(f"Despill Strength: {cfg.despill_strength}\n")
+                sf.write(f"Despill Color: {cfg.despill_color}\n")
+                sf.write(f"Despill Method: {cfg.despill_method}\n")
                 sf.write(f"Cutout Linear: {cfg.cutout_linear}\n")
                 sf.write(f"Frame Dir Linear: {cfg.frame_dir_linear}\n")
                 sf.write(f"Hann Chunk: {cfg.hann_chunk}\n")
@@ -883,6 +894,7 @@ def run_inference(model, input_path: str, output_dir: str, cfg: InferenceConfig,
                 sf.write(f"Low VRAM: {cfg.low_vram}\n")
                 sf.write(f"Model Scale: {cfg.model_scale}\n")
                 sf.write(f"Num Frames: {cfg.num_frames}\n")
+                sf.write(f"Start Offset: {cfg.start_offset}\n")
                 sf.write(f"Start Mode: {cfg.start_mode}\n")
                 sf.write(f"Seed: {cfg.seed}\n")
                 sf.write(f"Linear Brightness: {cfg.linear_brightness}\n")

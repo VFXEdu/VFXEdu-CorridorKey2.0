@@ -90,9 +90,7 @@ def find_corridorkey_root() -> Path:
 
     candidates = [
         Path(__file__).resolve().parent.parent.parent,
-        Path(r"K:\Pateron\CorridorKeyer2.0_Portable"),
-        Path(r"K:\________________VFXEdu_Script\CorridorKeyer2.0"),
-        Path(r"K:\CorridorKey2.0\CorridorKeyer2.0_Portable_v0.1.3"),
+        Path(__file__).resolve().parent.parent,
     ]
     for p in candidates:
         if p and p.is_dir() and (p / "infer.py").is_file():
@@ -105,8 +103,7 @@ def find_python_executable(ck_root: Path) -> Path:
     verified_candidates = [
         ck_root / "venv" / "Scripts" / "python.exe",
         ck_root / "python_embed" / "python.exe",
-        Path(r"K:\Pateron\CorridorKeyer2.0_Portable\python_embed\python.exe"),
-        Path(r"K:\________________VFXEdu_Script\CorridorKeyer2.0\venv\Scripts\python.exe"),
+        ck_root / "venv" / "bin" / "python",
     ]
     for p in verified_candidates:
         if _has_torch(p):
@@ -124,6 +121,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--node", required=True, help="CorridorKeyer node name in Fusion comp")
     ap.add_argument("--despill", type=float, default=0.5, help="Despill strength")
+    ap.add_argument("--despill-color", choices=("green", "blue"), default="green", help="Despill screen color")
+    ap.add_argument("--despill-method", choices=("average", "max", "none"), default="average", help="Despill method")
+    ap.add_argument("--model-scale", type=float, default=1.0, help="AI plate model scale")
     ap.add_argument("--fmt", type=int, default=0, help="0: ProRes 4444, 1: EXR, 2: MP4")
     ap.add_argument("--low-vram", type=int, default=0, help="Force low vram")
     ap.add_argument("--auto-vram", type=int, default=1, help="Auto vram")
@@ -242,6 +242,10 @@ def main():
 
     print(f"[*] Source Media: {source_path}")
 
+    # Resolve CorridorKey root early (needed for companion hint lookup and execution)
+    ck_root = find_corridorkey_root()
+    py_exe = find_python_executable(ck_root)
+
     # 2.4 Detect Alpha Hint (FrameHint input pin or companion file)
     hint_path = ""
     hint_mode = ""
@@ -296,9 +300,6 @@ def main():
         print(f"[*] Detected Alpha Hint: {hint_path} ({hint_mode})")
 
     # 3. Setup output folder
-    ck_root = find_corridorkey_root()
-    py_exe = find_python_executable(ck_root)
-
     clip_stem = Path(source_path).stem
     out_dir = Path(source_path).parent / "CorridorKey_Renders" / f"{clip_stem}_keyed"
     try:
@@ -339,6 +340,12 @@ def main():
         "--despill_strength", f"{args.despill:.2f}",
         "--outputs", *outputs,
     ]
+    if args.despill_color != "green":
+        cmd.extend(["--despill_color", args.despill_color])
+    if args.despill_method != "average":
+        cmd.extend(["--despill_method", args.despill_method])
+    if float(args.model_scale) != 1.0:
+        cmd.extend(["--model_scale", f"{float(args.model_scale):.2f}"])
     if hint_path and hint_mode:
         cmd.extend([hint_mode, hint_path])
     if args.low_vram:
@@ -354,11 +361,14 @@ def main():
     proc_env["PYTORCH_ALLOC_CONF"] = _alloc_val
     proc_env.pop("PYTORCH_CUDA_ALLOC_CONF", None)
     proc_env["PYTHONUTF8"] = "1"
+    proc_env["PYTHONIOENCODING"] = "utf-8"
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         bufsize=1,
         cwd=str(ck_root),
         env=proc_env,

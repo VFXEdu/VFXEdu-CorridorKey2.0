@@ -16,7 +16,9 @@ if exist "%~dp0python_embed\python.exe" (
 if "%~1"=="" (
     "%PYTHON%" "%~dp0run_interactive.py"
 ) else (
-    "%PYTHON%" "%~dp0run_interactive.py" "%~1"
+    for %%F in (%*) do (
+        "%PYTHON%" "%~dp0run_interactive.py" "%%~F"
+    )
 )
 
 echo.

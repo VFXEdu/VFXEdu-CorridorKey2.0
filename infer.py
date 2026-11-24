@@ -126,6 +126,9 @@ def main():
                     help=("Any of: alpha fg/raw_fg checker cutout. "
                           "Default: alpha fg."))
     ap.add_argument("--num_frames", type=int, default=-1)
+    ap.add_argument("--start_offset", type=int, default=None,
+                    help="0-based starting frame offset within the input video or frame directory. "
+                         "Overrides --start_mode when specified.")
     ap.add_argument("--start_mode", choices=("begin", "middle", "random_middle"),
                     default="begin")
     ap.add_argument("--seed", type=int, default=0)
@@ -201,6 +204,7 @@ def main():
         carry_hint_quality=args.carry_hint_quality,
         model_scale=args.model_scale,
         num_frames=args.num_frames,
+        start_offset=args.start_offset,
         start_mode=args.start_mode,
         seed=args.seed,
         low_vram=args.low_vram,

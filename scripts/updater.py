@@ -192,7 +192,25 @@ def check_for_updates(current_version: str, repo: str | None = None, timeout: fl
                     result["release_name"] = f"VFXEdu CorridorKey 2.0 {latest_raw} (Master Patch)"
                     result["release_url"] = f"https://github.com/{repo}/commits/master"
                     result["zipball_url"] = f"https://github.com/{repo}/archive/refs/heads/master.zip"
-                    result["release_notes"] = f"⚡ 최신 성능 패치 ({latest_raw})가 배포되었습니다.\n\n- 긴 영상 VRAM 파편화 방지 (expandable_segments:True)\n- 주기적 VRAM 자동 청소 (empty_cache)\n- 4K Low VRAM 자동 청크 튜닝 안정화"
+                    result["release_notes"] = f"⚡ 최신 패치 ({latest_raw})가 배포되었습니다."
+                    # Try to fetch actual release notes from CHANGELOG.md on master
+                    try:
+                        cl_url = f"https://raw.githubusercontent.com/{repo}/master/CHANGELOG.md"
+                        cl_req = urllib.request.Request(
+                            cl_url,
+                            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
+                        )
+                        with urllib.request.urlopen(cl_req, timeout=timeout) as cl_resp:
+                            cl_text = cl_resp.read().decode("utf-8", errors="replace")
+                            m_cl = re.search(
+                                rf"##\s*\[?{re.escape(latest_raw)}\]?[^\n]*\n(.*?)(?=\n##\s|\Z)",
+                                cl_text,
+                                flags=re.DOTALL,
+                            )
+                            if m_cl and m_cl.group(1).strip():
+                                result["release_notes"] = m_cl.group(1).strip()
+                    except Exception:
+                        pass
                     result["error"] = None
                     if is_newer_version(latest_raw, current_version):
                         result["update_available"] = True
@@ -352,12 +370,13 @@ def apply_code_update(
             except Exception as copy_err:
                 print(f"[Warning] Could not update {rel_path}: {copy_err}")
 
-        # Auto-refresh DaVinci Resolve Fuse and Nuke integrations automatically
+        # Auto-refresh DaVinci Resolve Fuse and Nuke integrations automatically (only if installed)
         synced_integrations = []
         try:
-            from scripts.install_resolve import install as install_resolve
-            if install_resolve(target_dir):
-                synced_integrations.append("DaVinci Resolve")
+            from scripts.install_resolve import get_resolve_script_dirs, install as install_resolve
+            if any(d.parent.is_dir() for d in get_resolve_script_dirs()):
+                if install_resolve(target_dir):
+                    synced_integrations.append("DaVinci Resolve")
         except Exception as e:
             print(f"[Warning] Resolve auto-sync: {e}")
 

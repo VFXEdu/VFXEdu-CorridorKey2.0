@@ -106,9 +106,6 @@ def find_corridorkey_root() -> Path | None:
     if env_root:
         candidates.append(Path(env_root))
 
-    candidates.append(Path(r"K:\CorridorKey2.0\CorridorKeyer2.0_Portable_v0.1.3"))
-    candidates.append(Path(r"K:\CorridorKey2.0\CorridorKeyer2.0_Portable_v1.1.1"))
-
     this_dir = Path(__file__).resolve().parent
     candidates.append(this_dir.parent)
     candidates.append(this_dir)
@@ -140,13 +137,6 @@ def find_python_executable(ck_root: Path | None) -> Path | None:
         venv_py_posix = ck_root / "venv" / "bin" / "python"
         if _has_torch(venv_py_posix):
             return venv_py_posix.resolve()
-
-    fallback_pythons = [
-        Path(r"K:\CorridorKey2.0\CorridorKeyer2.0_Portable_v0.1.3\python_embed\python.exe"),
-    ]
-    for fpy in fallback_pythons:
-        if _has_torch(fpy):
-            return fpy.resolve()
 
     if ck_root:
         p1 = ck_root / "venv" / "Scripts" / "python.exe"
@@ -250,11 +240,14 @@ class InferenceWorker(QtCore.QThread):
             proc_env["PYTORCH_ALLOC_CONF"] = _alloc_val
             proc_env.pop("PYTORCH_CUDA_ALLOC_CONF", None)
             proc_env["PYTHONUTF8"] = "1"
+            proc_env["PYTHONIOENCODING"] = "utf-8"
             self.proc = subprocess.Popen(
                 self.cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 bufsize=1,
                 cwd=str(self.ck_root),
                 env=proc_env,
@@ -407,18 +400,40 @@ class CorridorKeyResolveDialog(QtWidgets.QDialog):
         despill_layout.addWidget(self.lbl_despill_val)
         grid.addLayout(despill_layout, 1, 1)
 
+        # Despill Color & Method (Green / Blue, Average / Max / None)
+        grid.addWidget(QtWidgets.QLabel("Despill Screen / Method:"), 2, 0)
+        despill_opts_layout = QtWidgets.QHBoxLayout()
+        self.cmb_despill_color = QtWidgets.QComboBox()
+        self.cmb_despill_color.addItems(["Green", "Blue"])
+        self.cmb_despill_method = QtWidgets.QComboBox()
+        self.cmb_despill_method.addItems(["Average", "Max", "None"])
+        despill_opts_layout.addWidget(self.cmb_despill_color)
+        despill_opts_layout.addWidget(self.cmb_despill_method)
+        grid.addLayout(despill_opts_layout, 2, 1)
+
+        # AI Plate Scale (Model Scale)
+        grid.addWidget(QtWidgets.QLabel("AI Plate Scale:"), 3, 0)
+        self.cmb_model_scale = QtWidgets.QComboBox()
+        self.cmb_model_scale.addItems([
+            "1.0 (Full Native Resolution)",
+            "0.75 (High Quality Scale)",
+            "0.50 (Half Proxy - 4K Recommended)",
+            "0.25 (Quarter Proxy - 8K Recommended)",
+        ])
+        grid.addWidget(self.cmb_model_scale, 3, 1)
+
         # Frame Range Mode
-        grid.addWidget(QtWidgets.QLabel("Processing Range:"), 2, 0)
+        grid.addWidget(QtWidgets.QLabel("Processing Range:"), 4, 0)
         self.cmb_range = QtWidgets.QComboBox()
         self.cmb_range.addItems([
             "Timeline Cut In/Out Only (Fast)",
             "Entire Source Video File",
         ])
-        grid.addWidget(self.cmb_range, 2, 1)
+        grid.addWidget(self.cmb_range, 4, 1)
 
         # Low VRAM Checkbox
         self.chk_low_vram = QtWidgets.QCheckBox("Force Low VRAM Mode (For <=8GB GPUs)")
-        grid.addWidget(self.chk_low_vram, 3, 1)
+        grid.addWidget(self.chk_low_vram, 5, 1)
 
         layout.addWidget(grp_opt)
 
@@ -584,15 +599,29 @@ class CorridorKeyResolveDialog(QtWidgets.QDialog):
             "--outputs", *outputs,
         ]
 
+        despill_color = self.cmb_despill_color.currentText().lower()
+        if despill_color != "green":
+            cmd.extend(["--despill_color", despill_color])
+
+        despill_method = self.cmb_despill_method.currentText().lower()
+        if despill_method != "average":
+            cmd.extend(["--despill_method", despill_method])
+
+        scale_map = {0: 1.0, 1: 0.75, 2: 0.50, 3: 0.25}
+        model_scale = scale_map.get(self.cmb_model_scale.currentIndex(), 1.0)
+        if model_scale != 1.0:
+            cmd.extend(["--model_scale", f"{model_scale:.2f}"])
+
         if self.chk_low_vram.isChecked():
             cmd.append("--low_vram")
 
         # Range Option: Cut In/Out
         if self.cmb_range.currentIndex() == 0:
             # Cut only: offset and num_frames
-            left_offset = self.clip_info.get("left_offset", 0)
-            duration = self.clip_info.get("duration", -1)
-            # CorridorKey supports num_frames
+            left_offset = int(self.clip_info.get("left_offset", 0) or 0)
+            duration = int(self.clip_info.get("duration", -1) or -1)
+            if left_offset > 0:
+                cmd.extend(["--start_offset", str(left_offset)])
             if duration > 0:
                 cmd.extend(["--num_frames", str(duration)])
 
@@ -686,9 +715,22 @@ class CorridorKeyResolveDialog(QtWidgets.QDialog):
                         if track_count < 2:
                             timeline.AddTrack("video")
 
-                        # Append or insert media
-                        mp.AppendToTimeline(imported[0])
-                        print("[CorridorKey Resolve] Appended keyed clip to timeline.")
+                        # Place directly on Track V2 at the source clip's timeline start frame
+                        placed = False
+                        if self.clip_info and self.clip_info.get("start") is not None:
+                            try:
+                                clip_info_dict = {
+                                    "mediaPoolItem": imported[0],
+                                    "trackIndex": 2,
+                                    "recordFrame": int(self.clip_info["start"]),
+                                }
+                                res_place = mp.AppendToTimeline([clip_info_dict])
+                                placed = bool(res_place)
+                            except Exception:
+                                placed = False
+                        if not placed:
+                            mp.AppendToTimeline(imported[0])
+                        print("[CorridorKey Resolve] Placed keyed clip on timeline.")
         except Exception as e:
             print(f"[CorridorKey Resolve] Note during Resolve import: {e}")
 

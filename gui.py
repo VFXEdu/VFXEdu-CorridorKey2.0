@@ -74,7 +74,7 @@ import uuid
 # Ensure local bin (ffmpeg.exe) is in PATH
 _ROOT = Path(__file__).resolve().parent
 APP_NAME = "VFXEdu CorridorKey 2.0"
-APP_VERSION = "v0.1.9"
+APP_VERSION = "v0.1.10"
 _BIN = _ROOT / "bin"
 if _BIN.is_dir() and str(_BIN) not in os.environ.get("PATH", ""):
     os.environ["PATH"] = str(_BIN) + os.pathsep + os.environ.get("PATH", "")
@@ -116,8 +116,15 @@ VIDEO_EXTS = {'.mp4', '.mov', '.mkv', '.avi', '.webm', '.m4v'}
 IMAGE_EXTS = {'.png', '.jpg', '.jpeg', '.exr', '.tiff', '.tif', '.webp', '.dpx'}
 
 
+_NATURAL_SORT_RE = re.compile(r'(\d+)')
+
+
+def _natural_sort_key(p: Path) -> list:
+    return [int(tok) if tok.isdigit() else tok.lower() for tok in _NATURAL_SORT_RE.split(p.name)]
+
+
 def _list_sequence_frames(folder: Path) -> list[Path]:
-    """Return sorted sequence image frames inside folder, excluding companion hint files."""
+    """Return naturally-sorted sequence image frames inside folder, excluding companion hint files."""
     if not folder.is_dir():
         return []
     frames: list[Path] = []
@@ -130,7 +137,7 @@ def _list_sequence_frames(folder: Path) -> list[Path]:
                 frames.append(p)
     except OSError:
         pass
-    return sorted(frames)
+    return sorted(frames, key=_natural_sort_key)
 
 
 def _decode_sequence_frame_bgr(frame_path: Path, is_linear_exr: bool | None = None) -> np.ndarray | None:
@@ -2364,34 +2371,59 @@ class Window(QMainWindow):
         self.auto_detect_companion_hint(clip_path)
 
     def _detect_matched_results(self, clip_path: Path):
-        """Find existing rendered outputs matching this clip name without heavy disk walking."""
+        """Find existing rendered outputs matching this clip name (newest first), supporting both video and EXR sequences."""
         self.matched_results.clear()
         out_root = Path(self.output.text()).resolve() if self.output.text().strip() else (ROOT / 'outputs')
         if not out_root.exists():
             return
         base = clip_path.stem.lower()
+
+        def _scan_dir(folder: Path):
+            try:
+                children = sorted(folder.iterdir(), key=lambda p: p.name.lower())
+            except OSError:
+                return
+            for f in children:
+                nl = f.name.lower()
+                if f.is_file() and f.suffix.lower() in VIDEO_EXTS:
+                    if 'checker' in nl or 'comp' in nl:
+                        self.matched_results.setdefault('comp', f)
+                    elif 'cutout' in nl:
+                        self.matched_results.setdefault('comp', f)
+                    elif 'alpha' in nl:
+                        self.matched_results.setdefault('alpha', f)
+                elif f.is_dir() and _list_sequence_frames(f):
+                    if any(tok in nl for tok in ('checker', 'comp', 'cutout')):
+                        self.matched_results.setdefault('comp', f)
+                    elif 'alpha' in nl:
+                        self.matched_results.setdefault('alpha', f)
+                    elif 'fg' in nl:
+                        self.matched_results.setdefault('comp', f)
+
+        # Prefer the most recent active destination first if it matches this clip
+        if getattr(self, 'destination', None) and self.destination.is_dir() and base in self.destination.name.lower():
+            _scan_dir(self.destination)
+            if self.matched_results:
+                return
+
         try:
-            for item in out_root.iterdir():
+            items = sorted(
+                out_root.iterdir(),
+                key=lambda p: p.stat().st_mtime if p.exists() else 0.0,
+                reverse=True,
+            )
+            for item in items:
                 if base in item.name.lower():
                     if item.is_dir():
-                        for f in item.iterdir():
-                            nl = f.name.lower()
-                            if f.is_file() and f.suffix.lower() in VIDEO_EXTS:
-                                if 'checker' in nl or 'comp' in nl:
-                                    self.matched_results['comp'] = f
-                                elif 'alpha' in nl:
-                                    self.matched_results['alpha'] = f
-                            elif f.is_dir() and _list_sequence_frames(f):
-                                if nl in ('checker', 'comp', 'cutout', 'fg'):
-                                    self.matched_results.setdefault('comp', f)
-                                elif nl == 'alpha':
-                                    self.matched_results['alpha'] = f
+                        _scan_dir(item)
+                        if self.matched_results:
+                            return
                     elif item.is_file() and item.suffix.lower() in VIDEO_EXTS:
                         nl = item.name.lower()
-                        if 'checker' in nl or 'comp' in nl:
-                            self.matched_results['comp'] = item
+                        if 'checker' in nl or 'comp' in nl or 'cutout' in nl:
+                            self.matched_results.setdefault('comp', item)
                         elif 'alpha' in nl:
-                            self.matched_results['alpha'] = item
+                            self.matched_results.setdefault('alpha', item)
         except OSError:
             pass
 
@@ -2552,7 +2584,8 @@ class Window(QMainWindow):
                 rgb_a = cv2.cvtColor(f_a, cv2.COLOR_BGR2RGB)
                 ha, wa, _ = rgb_a.shape
                 alpha_pix = QPixmap.fromImage(QImage(rgb_a.data, wa, ha, rgb_a.strides[0], QImage.Format_RGB888).copy())
-                if f is not None:
+                # Only synthesize RGBA cutout from original plate if no despilled comp/cutout was rendered
+                if comp_pix is None and f is not None:
                     gray_a = cv2.cvtColor(f_a, cv2.COLOR_BGR2GRAY) if f_a.ndim == 3 else f_a
                     if gray_a.shape[:2] != f.shape[:2]:
                         gray_a = cv2.resize(gray_a, (w, h), interpolation=cv2.INTER_LINEAR)
@@ -2560,10 +2593,13 @@ class Window(QMainWindow):
                     rgba[:, :, 3] = gray_a
                     comp_pix = QPixmap.fromImage(QImage(rgba.data, w, h, rgba.strides[0], QImage.Format_RGBA8888).copy())
 
-        # 4. Cache decoded frame tuple into memory (limit to 300 frames to keep RAM footprint low)
+        # 4. Cache decoded frame tuple into memory (budget ~512 MB to prevent 4K/8K RAM spikes)
         if hasattr(self, '_viewport_frame_cache'):
-            if len(self._viewport_frame_cache) > 300:
-                for k in list(self._viewport_frame_cache.keys())[:50]:
+            est_frame_bytes = max(1, w * h * 4 * 3)
+            max_cached_frames = max(16, min(300, (512 * 1024 * 1024) // est_frame_bytes))
+            if len(self._viewport_frame_cache) >= max_cached_frames:
+                evict_n = max(1, max_cached_frames // 5)
+                for k in list(self._viewport_frame_cache.keys())[:evict_n]:
                     del self._viewport_frame_cache[k]
             self._viewport_frame_cache[frame_idx] = (orig_pix, comp_pix, alpha_pix, w, h)
 
@@ -3515,6 +3551,8 @@ class Window(QMainWindow):
             self.model_scale.setValue(float(opts["model_scale"]))
         if "stage2_batch" in opts:
             self.stage2_batch.setValue(int(opts["stage2_batch"]))
+        if "weights" in opts and hasattr(self, "weights_path"):
+            self.weights_path.setText(str(opts["weights"]))
 
         # 6. Frames, Start, Seed, FPS, Linear
         if "frames" in opts:
@@ -3806,6 +3844,7 @@ class Window(QMainWindow):
             active_hint = base_opts.get('hint', '')
 
             # Check if active hint is clip-specific
+            apply_manual_hint_to_batch = False
             if base_opts.get('hint_mode') and self.queue.count() > 1 and active_hint:
                 f_comp = find_first_frame_hint(self.current_clip_path) if self.current_clip_path else None
                 v_comp = find_alpha_hint_video(self.current_clip_path) if self.current_clip_path else None
@@ -3823,13 +3862,15 @@ class Window(QMainWindow):
                     )
                     if ret != QMessageBox.Yes:
                         return
+                    apply_manual_hint_to_batch = True
 
             jobs = []
             for i in range(self.queue.count()):
                 source = Path(self.queue.item(i).text())
                 clip_opts = dict(base_opts)
 
-                # For batch processing, auto-bind companion hint for each clip if not fixed
+                # For batch processing, auto-bind companion hint for each clip if present;
+                # otherwise apply the user-approved manual hint or clear clip-specific hint.
                 f_hint = find_first_frame_hint(source)
                 v_hint = find_alpha_hint_video(source)
                 if f_hint:
@@ -3838,6 +3879,9 @@ class Window(QMainWindow):
                 elif v_hint:
                     clip_opts['hint_mode'] = '--hint_video'
                     clip_opts['hint'] = str(v_hint.resolve())
+                elif apply_manual_hint_to_batch:
+                    clip_opts['hint_mode'] = base_opts.get('hint_mode', '')
+                    clip_opts['hint'] = active_hint
                 else:
                     clip_opts['hint_mode'] = ''
                     clip_opts['hint'] = ''
@@ -3900,7 +3944,7 @@ class Window(QMainWindow):
     def check_environment(self):
         self.cancelled = False
         self.status.setText(tr('status_checking_env'))
-        self.launch(['-u', str(ROOT / 'desktop_check.py')], 'check')
+        self.launch(['-u', str(ROOT / 'scripts' / 'smoke_test_runtime.py')], 'check')
 
     def download(self):
         self.show_model_manager()
@@ -3997,8 +4041,9 @@ class Window(QMainWindow):
                         self.result_choice.addItem(entry, str(path))
             if self.result_choice.count():
                 self.result_choice.setCurrentIndex(self.result_choice.count() - 1)
-            # Re-detect results for active source clip
+            # Re-detect results for active source clip and invalidate stale viewport cache
             if self.current_source:
+                self._release_video_caps()
                 self._detect_matched_results(self.current_source)
                 self.show_frame_in_viewport(self.filmstrip.current_frame)
 

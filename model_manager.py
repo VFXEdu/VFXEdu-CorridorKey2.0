@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
     QApplication,
 )
 
-from i18n import tr, add_language_listener
+from i18n import tr, add_language_listener, remove_language_listener
 
 ROOT = Path(__file__).resolve().parent
 
@@ -592,6 +592,10 @@ class ModelManagerDialog(QDialog):
             subprocess.run(["open", str(w_dir)])
         else:
             subprocess.run(["xdg-open", str(w_dir)])
+
+    def closeEvent(self, event):
+        remove_language_listener(self._retranslate_ui)
+        super().closeEvent(event)
 
     def _retranslate_ui(self, lang: str):
         self.setWindowTitle(tr("model_mgr_title"))

@@ -99,6 +99,12 @@ def raw_clip_name(path: str | os.PathLike) -> str:
 
 
 _SEQ_IMAGE_EXTS = {".exr", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp", ".dpx"}
+_NATURAL_SPLIT_RE = re.compile(r"(\d+)")
+
+
+def natural_sort_key(value: str | os.PathLike) -> list:
+    name = os.path.basename(str(value))
+    return [int(tok) if tok.isdigit() else tok.lower() for tok in _NATURAL_SPLIT_RE.split(name)]
 
 
 def frame_paths(frame_dir: str | os.PathLike) -> list[str]:
@@ -115,7 +121,7 @@ def frame_paths(frame_dir: str | os.PathLike) -> list[str]:
                 paths.append(str(p))
     except OSError:
         pass
-    return sorted(paths)
+    return sorted(paths, key=natural_sort_key)
 
 
 def ceil_to_multiple(x: int, q: int) -> int:
@@ -292,7 +298,8 @@ def probe_video_meta(video_path: str, *, num_frames: int, shape_quantum: int,
                      native_resolution: bool, start_mode: str, seed: int,
                      model_scale: float, linear_brightness: float,
                      linear_contrast: float,
-                     linear_contrast_pivot: float) -> dict:
+                     linear_contrast_pivot: float,
+                     start_offset: int | None = None) -> dict:
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise RuntimeError(f"Could not open video: {video_path}")
@@ -316,18 +323,23 @@ def probe_video_meta(video_path: str, *, num_frames: int, shape_quantum: int,
     else:
         raise ValueError("non-native inference is intentionally not exposed")
 
-    n_to_load = n_total if num_frames <= 0 else min(num_frames, n_total)
-    start_frame = 0
-    max_start = max(n_total - n_to_load, 0)
-    if max_start > 0 and num_frames > 0:
-        if start_mode == "middle":
-            start_frame = max_start // 2
-        elif start_mode == "random_middle":
-            lo = max_start // 4
-            hi = (3 * max_start) // 4
-            start_frame = int(np.random.default_rng(int(seed)).integers(lo, hi + 1))
-        elif start_mode != "begin":
-            raise ValueError(f"unknown start mode {start_mode!r}")
+    if start_offset is not None:
+        start_frame = max(0, min(int(start_offset), max(0, n_total - 1)))
+        remaining = max(0, n_total - start_frame)
+        n_to_load = remaining if num_frames <= 0 else min(num_frames, remaining)
+    else:
+        n_to_load = n_total if num_frames <= 0 else min(num_frames, n_total)
+        start_frame = 0
+        max_start = max(n_total - n_to_load, 0)
+        if max_start > 0 and num_frames > 0:
+            if start_mode == "middle":
+                start_frame = max_start // 2
+            elif start_mode == "random_middle":
+                lo = max_start // 4
+                hi = (3 * max_start) // 4
+                start_frame = int(np.random.default_rng(int(seed)).integers(lo, hi + 1))
+            elif start_mode != "begin":
+                raise ValueError(f"unknown start mode {start_mode!r}")
 
     meta = {
         "native_fps": native_fps,
@@ -364,10 +376,17 @@ def _read_frame_dir_views(path: str, *, exr_linear: bool):
 
 def probe_frame_dir_meta(frame_dir: str, *, num_frames: int,
                          shape_quantum: int, fps: float,
-                         exr_linear: bool, model_scale: float) -> dict:
+                         exr_linear: bool, model_scale: float,
+                         start_offset: int | None = None,
+                         linear_brightness: float = 1.0,
+                         linear_contrast: float = 1.0,
+                         linear_contrast_pivot: float = 0.18) -> dict:
     paths = frame_paths(frame_dir)
     if not paths:
         raise RuntimeError(f"No frames found under {frame_dir}")
+    if start_offset is not None and int(start_offset) > 0:
+        off = min(int(start_offset), len(paths) - 1)
+        paths = paths[off:]
     if num_frames > 0:
         paths = paths[:num_frames]
     first_display, _ = _read_frame_dir_views(paths[0], exr_linear=exr_linear)
@@ -404,9 +423,9 @@ def probe_frame_dir_meta(frame_dir: str, *, num_frames: int,
         "pad": (pad_l, pad_r, pad_t, pad_b),
         "native_resolution": True,
         "exr_linear": bool(exr_linear),
-        "linear_brightness": 1.0,
-        "linear_contrast": 1.0,
-        "linear_contrast_pivot": 0.18,
+        "linear_brightness": float(linear_brightness),
+        "linear_contrast": float(linear_contrast),
+        "linear_contrast_pivot": float(linear_contrast_pivot),
     }
     print(f"  probed {len(paths)} frames from {frame_dir} @ {w_out}x{h_out} "
           f"(native {w_native}x{h_native}, fps {fps:.2f}, "
@@ -446,14 +465,23 @@ def preprocess_frame_dir_path(path: str, meta: dict, *, need_model: bool):
     display = resize_hwc_lanczos(display, (h_model, w_model))
     linear = resize_hwc_lanczos(linear, (h_model, w_model))
     display, _ = center_pad_to_shape(np.clip(display, 0.0, 1.0), h_out, w_out)
-    display_t = torch.from_numpy(
+    review_t = torch.from_numpy(
         display.transpose(2, 0, 1)).to(dtype=torch.bfloat16)
-    if not need_model:
-        return None, display_t, display_t
+    if not need_model and not has_linear_adjust(meta):
+        return None, review_t, review_t
     linear, _ = center_pad_to_shape(linear, h_out, w_out)
-    model = cu.linear_to_asinh(linear)
+    linear_model = apply_linear_adjust(linear, meta)
+    if has_linear_adjust(meta):
+        foundation_np = cu.linear_to_vfm_sdr(linear_model)
+        foundation_t = torch.from_numpy(
+            foundation_np.transpose(2, 0, 1)).to(dtype=torch.bfloat16)
+    else:
+        foundation_t = review_t
+    if not need_model:
+        return None, foundation_t, review_t
+    model = cu.linear_to_asinh(linear_model)
     model_t = torch.from_numpy(model.transpose(2, 0, 1)).to(dtype=torch.bfloat16)
-    return model_t, display_t, display_t
+    return model_t, foundation_t, review_t
 
 
 class SequentialVideoWindowReader:
@@ -827,10 +855,26 @@ class ThreadedVideoWriter:
         self.q.put(arr)
 
     def release(self):
-        self.q.put(None)
-        self.thread.join()
+        if self.thread.is_alive():
+            try:
+                self.q.put(None, timeout=1.0)
+            except queue.Full:
+                while not self.q.empty():
+                    try:
+                        self.q.get_nowait()
+                        self.q.task_done()
+                    except queue.Empty:
+                        break
+                try:
+                    self.q.put(None, timeout=1.0)
+                except queue.Full:
+                    pass
+        self.thread.join(timeout=10.0)
         if self.proc is not None and self.proc.stdin is not None:
-            self.proc.stdin.close()
+            try:
+                self.proc.stdin.close()
+            except Exception:
+                pass
         rc = self.proc.wait() if self.proc is not None else 0
         if rc != 0 and self.err is None:
             self.err = RuntimeError(f"ffmpeg writer failed with exit code {rc}: {self.path}")
@@ -888,8 +932,17 @@ class ExrSequenceWriter:
                     frame = np.ascontiguousarray(arr[j])
                     if frame.shape[-1] == 1:
                         frame = frame[..., 0]
-                    if not cv2.imwrite(out_path, frame, self.imwrite_params):
-                        raise RuntimeError(f"cv2.imwrite failed: {out_path}")
+                    written = False
+                    try:
+                        ok_enc, enc_buf = cv2.imencode(".exr", frame, self.imwrite_params)
+                        if ok_enc:
+                            with open(out_path, "wb") as ef:
+                                ef.write(enc_buf.tobytes())
+                            written = True
+                    except Exception:
+                        written = False
+                    if not written and not cv2.imwrite(out_path, frame, self.imwrite_params):
+                        raise RuntimeError(f"EXR write failed: {out_path}")
                 self.q.task_done()
         except Exception as exc:
             self.err = exc
@@ -911,8 +964,21 @@ class ExrSequenceWriter:
         self.write_many(frame[None])
 
     def release(self):
-        self.q.put(None)
-        self.thread.join()
+        if self.thread.is_alive():
+            try:
+                self.q.put(None, timeout=1.0)
+            except queue.Full:
+                while not self.q.empty():
+                    try:
+                        self.q.get_nowait()
+                        self.q.task_done()
+                    except queue.Empty:
+                        break
+                try:
+                    self.q.put(None, timeout=1.0)
+                except queue.Full:
+                    pass
+        self.thread.join(timeout=10.0)
         if self.err is not None:
             raise self.err
 

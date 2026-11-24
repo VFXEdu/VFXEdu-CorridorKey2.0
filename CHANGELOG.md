@@ -6,6 +6,33 @@ GitHub 릴리즈 시 해당 버전의 내용이 릴리즈 노트 및 GUI 업데�
 
 ---
 
+## [v0.1.10] - 2026-11-24
+
+### 🚀 주요 업데이트 및 버그 수정 (Highlights)
+- **DaVinci Resolve / Fusion 브릿지 크래시 수정 및 v0.1.10 기능 완전 동기화**
+  - Fusion 브릿지(`corridorkey_fusion.py`)에서 `ck_root` 선언 전 참조로 발생하던 `UnboundLocalError` 크래시를 수정했습니다.
+  - DaVinci Resolve Edit/Color 다이얼로그 및 Fusion Fuse 노드에 `Despill Color (Green/Blue)`, `Despill Method (Average/Max/None)`, `AI Plate Scale (Model Scale)` 컨트롤을 추가하여 GUI/Nuke와 1:1 기능 패리티를 완성했습니다.
+  - Resolve/Fusion 서브프로세스에 `encoding="utf-8", errors="replace"`를 적용해 Windows 한글 경로 실행 시 발생하던 `UnicodeDecodeError`를 원천 차단했습니다.
+  - Resolve `"Timeline Cut In/Out Only"` 실행 시 `left_offset`을 신규 CLI 옵션 `--start_offset`으로 전달하여 정확한 타임라인 트리밍 구간만 렌더링하며, 완료 시 V2 트랙의 원본 클립 시작 위치에 배치하도록 개선했습니다.
+- **CLI `--start_offset` 구간 트리밍 지원 및 코어 I/O 안정성 대폭 강화**
+  - `infer.py` / `runtime.py` / `video_io.py`에 0-based 시작 프레임 오프셋 `--start_offset`을 추가해 비디오 및 이미지 시퀀스 모두 임의 구간 고속 렌더링이 가능합니다.
+  - `ExrSequenceWriter`를 `cv2.imencode(".exr")` 기반 유니코드 안전 저장 방식으로 전환하여 Windows 한글 경로에서도 EXR 시퀀스가 깨짐 없이 저장됩니다.
+  - `ThreadedVideoWriter` / `ExrSequenceWriter`의 워커 예외 종료 시 `release()` 큐 데드락 가능성을 차단했습니다.
+  - 이미지 시퀀스 입력에서도 `linear_brightness` / `linear_contrast` / `linear_contrast_pivot` 색보정 파라미터가 정상 적용되도록 수정하고, 자연 숫자 정렬(Natural Sort, 예: `frame_2` → `frame_10`)을 도입했습니다.
+- **Desktop GUI 뷰포트 캐시·EXR 자동 감지·메모리 안전성 패치**
+  - 렌더 완료 후 `_viewport_frame_cache`를 즉시 무효화하고 최신 출력 폴더 및 `_exr` 시퀀스 폴더를 자동 감지하여 뷰포트에 바로 반영되도록 수정했습니다.
+  - 뷰포트에서 `alpha` 파일이 존재할 때 디스필 완료된 `comp`/`cutout` 결과를 원본 그린스크린으로 덮어쓰던 버그를 수정했습니다.
+  - 뷰포트 프레임 캐시에 ~512 MB 해상도 기반 동적 메모리 상한을 적용해 4K/8K 스크러빙 시 RAM 과점유를 방지했습니다.
+  - `ModelManagerDialog` 언어 리스너 누수 해제, 프로젝트 복원 시 `weights` 경로 복원, 배치 렌더 수동 힌트 적용 일관성 수정, 존재하지 않던 `desktop_check.py` 호출을 `scripts/smoke_test_runtime.py`로 교정했습니다.
+- **Foundry Nuke 브릿지 정밀도 및 배선 개선**
+  - Nuke `Read` 노드 직결 시 `1-Frame Preview` 또는 `Custom Range`가 전체 클립을 렌더링하던 버그를 `--start_offset` / `--num_frames` 전달로 해결했습니다.
+  - `create_corridorkeyer_node()` 내부 배선이 디스필된 `Read_Cutout`을 사용하도록 수정하고, Nuke/Resolve/Fusion 브릿지에서 개발자 로컬 `K:\` 하드코딩 경로를 제거했습니다.
+- **업데이터·배치 런처·저장소 정리**
+  - 자동 업데이터가 GitHub `CHANGELOG.md`에서 최신 릴리즈 노트를 동적으로 추출하고, Resolve 미설치 환경에서는 불필요한 Resolve 동기화를 건너뛰도록 개선했습니다.
+  - `CorridorKey_DRAG_CLIPS_HERE.bat`가 멀티 클립 드래그 앤 드롭(`%*`)을 지원하며, `pytest.ini` 추가 및 루트의 불필요한 `[file dirname [value root.name]]` 폴더를 정리했습니다.
+
+---
+
 ## [v0.1.9] - 2026-11-14
 
 ### 🚀 주요 업데이트 및 개선 내역 (Highlights)

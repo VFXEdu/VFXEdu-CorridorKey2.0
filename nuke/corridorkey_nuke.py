@@ -43,20 +43,12 @@ def find_corridorkey_root() -> Path | None:
     """Auto-detect the CorridorKey root repository or portable installation."""
     candidates = []
 
-    # 1. Environment variable
+    # 1. Explicit environment variable
     env_root = os.environ.get("CORRIDORKEY_ROOT")
     if env_root:
         candidates.append(Path(env_root))
 
-    # 2. Known portable installations with weights
-    candidates.append(Path(r"K:\CorridorKey2.0\CorridorKeyer2.0_Portable_v0.1.3"))
-    candidates.append(Path(r"K:\CorridorKey2.0\CorridorKeyer2.0_Portable_v1.1.1"))
-    candidates.append(Path(r"K:\Pateron\CorridorKeyer2.0_Portable"))
-
-    # 3. Main Development Repository
-    candidates.append(Path(r"K:\________________VFXEdu_Script\CorridorKeyer2.0"))
-
-    # 4. Relative to this script (e.g. repo_root/nuke/corridorkey_nuke.py -> repo_root)
+    # 2. Relative to this script (e.g. repo_root/nuke/corridorkey_nuke.py -> repo_root)
     this_dir = Path(__file__).resolve().parent
     candidates.append(this_dir.parent)
     candidates.append(this_dir)
@@ -92,15 +84,6 @@ def find_python_executable(ck_root: Path | None) -> Path | None:
         venv_py_posix = ck_root / "venv" / "bin" / "python"
         if _has_torch(venv_py_posix):
             return venv_py_posix.resolve()
-
-    # Cross-search known working environments if ck_root's Python is not setup
-    fallback_pythons = [
-        Path(r"K:\Pateron\CorridorKeyer2.0_Portable\python_embed\python.exe"),
-        Path(r"K:\CorridorKey2.0\CorridorKeyer2.0_Portable_v0.1.3\python_embed\python.exe"),
-    ]
-    for fpy in fallback_pythons:
-        if _has_torch(fpy):
-            return fpy.resolve()
 
     # Last resort fallback
     if ck_root:
@@ -139,6 +122,8 @@ def build_command_args(
     model_scale: float = 1.0,
     stage2_batch: int = 1,
     start_frame: int | None = None,
+    start_offset: int | None = None,
+    num_frames: int | None = None,
 ) -> list[str]:
     """Construct CLI arguments for CorridorKey infer.py."""
     infer_py = ck_root / "infer.py"
@@ -163,6 +148,12 @@ def build_command_args(
 
     if start_frame is not None:
         cmd.extend(["--start_frame", str(int(start_frame))])
+
+    if start_offset is not None and int(start_offset) > 0:
+        cmd.extend(["--start_offset", str(int(start_offset))])
+
+    if num_frames is not None and int(num_frames) > 0:
+        cmd.extend(["--num_frames", str(int(num_frames))])
 
     if float(model_scale) != 1.0:
         cmd.extend(["--model_scale", f"{float(model_scale):.2f}"])
@@ -428,6 +419,8 @@ def execute_keyer(node, preview_single_frame: bool = False) -> bool:
     # 4. Resolve input path
     input_path = ""
     is_direct_disk = False
+    direct_start_offset = None
+    direct_num_frames = None
 
     if source_node.Class() == "Read":
         file_path = source_node.knob("file").value()
@@ -447,6 +440,13 @@ def execute_keyer(node, preview_single_frame: bool = False) -> bool:
                 if os.path.isdir(seq_dir):
                     input_path = seq_dir
                     is_direct_disk = True
+
+        if is_direct_disk:
+            src_first = int(source_node.firstFrame())
+            src_last = int(source_node.lastFrame())
+            if preview_single_frame or range_mode in ("Current Frame Only", "Custom") or first_frame != src_first or last_frame != src_last:
+                direct_start_offset = max(0, first_frame - src_first)
+                direct_num_frames = max(1, last_frame - first_frame + 1)
 
     # If source is modified or not a direct file, bake to a temp EXR sequence
     temp_plate_dir = None
@@ -580,6 +580,8 @@ def execute_keyer(node, preview_single_frame: bool = False) -> bool:
         model_scale=model_scale,
         stage2_batch=stage2_batch,
         start_frame=first_frame,
+        start_offset=direct_start_offset,
+        num_frames=direct_num_frames,
     )
 
     print(f"[CorridorKey] Executing Command:\n{' '.join(cmd)}")
@@ -1113,16 +1115,16 @@ def create_corridorkeyer_node():
         read_fg = nuke.nodes.Read(name="Read_FG", xpos=250, ypos=100)
         read_fg.knob("file").setValue("")
 
-        copy_refined = nuke.nodes.Copy(name="Copy_Refined_Alpha", inputs=[read_fg, node_grade], xpos=250, ypos=280)
+        read_cutout = nuke.nodes.Read(name="Read_Cutout", xpos=100, ypos=100)
+        read_cutout.knob("file").setValue("")
+
+        copy_refined = nuke.nodes.Copy(name="Copy_Refined_Alpha", inputs=[read_cutout, node_grade], xpos=100, ypos=280)
         copy_refined.knob("from0").setValue("rgba.alpha")
         copy_refined.knob("to0").setValue("rgba.alpha")
 
-        premult_fg = nuke.nodes.Premult(name="Premult_FG", inputs=[copy_refined], xpos=250, ypos=360)
+        premult_fg = nuke.nodes.Premult(name="Premult_FG", inputs=[copy_refined], xpos=100, ypos=360)
 
-        dot_fg = nuke.nodes.Dot(name="Dot_FG", inputs=[read_fg], xpos=180, ypos=360)
-
-        read_cutout = nuke.nodes.Read(name="Read_Cutout", xpos=100, ypos=100)
-        read_cutout.knob("file").setValue("")
+        dot_fg = nuke.nodes.Dot(name="Dot_FG", inputs=[read_fg], xpos=250, ypos=360)
 
         sw = nuke.nodes.Switch(
             name="Switch_Output",

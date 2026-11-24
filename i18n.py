@@ -768,6 +768,13 @@ def add_language_listener(fn: Callable[[str], None]):
         _listeners.append(fn)
 
 
+def remove_language_listener(fn: Callable[[str], None]):
+    try:
+        _listeners.remove(fn)
+    except ValueError:
+        pass
+
+
 def tr(key: str, **kwargs) -> str:
     """Translate key to current language with format kwargs fallback."""
     table = TRANSLATIONS.get(_current_lang, TRANSLATIONS[DEFAULT_LANG])
