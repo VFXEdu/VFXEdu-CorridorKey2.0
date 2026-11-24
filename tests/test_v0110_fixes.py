@@ -244,6 +244,28 @@ class TestV0110Fixes(unittest.TestCase):
         self.assertFalse(win.filmstrip.is_subrange_active())
         win.close()
 
+    def test_detect_matched_results_reads_start_offset(self):
+        import json
+        from PySide6.QtWidgets import QApplication
+        import gui
+
+        app = QApplication.instance() or QApplication([])
+        win = gui.Window()
+        with tempfile.TemporaryDirectory() as td:
+            out_root = Path(td)
+            run_dir = out_root / "soldier_20261124_173000_xyz123"
+            run_dir.mkdir(parents=True)
+            (run_dir / "soldier_checker_comp_despill050.mp4").write_bytes(b"mp4")
+            (run_dir / "gui_job.json").write_text(
+                json.dumps({"input": "soldier.mp4", "arguments": ["--start_offset", "142", "--num_frames", "156"]}),
+                encoding="utf-8",
+            )
+            win.output.setText(str(out_root))
+            win.destination = None
+            win._detect_matched_results(Path("soldier.mp4"))
+            self.assertEqual(win.matched_results.get("start_offset"), 142)
+        win.close()
+
 
 if __name__ == "__main__":
     unittest.main()

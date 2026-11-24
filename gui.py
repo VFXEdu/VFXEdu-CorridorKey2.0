@@ -2410,27 +2410,61 @@ class Window(QMainWindow):
             return
         base = clip_path.stem.lower()
 
+        def _read_folder_start_offset(folder: Path) -> int:
+            job_json = folder / 'gui_job.json'
+            if job_json.is_file():
+                try:
+                    data = json.loads(job_json.read_text(encoding='utf-8', errors='ignore'))
+                    if isinstance(data, dict):
+                        if data.get('start_offset') is not None:
+                            return max(0, int(data['start_offset']))
+                        args_list = data.get('arguments') or []
+                        if '--start_offset' in args_list:
+                            idx_o = args_list.index('--start_offset')
+                            if idx_o + 1 < len(args_list):
+                                return max(0, int(args_list[idx_o + 1]))
+                except Exception:
+                    pass
+            try:
+                for sf in folder.glob('*_settings.txt'):
+                    txt = sf.read_text(encoding='utf-8', errors='ignore')
+                    m = re.search(r'Start Offset:\s*(\d+)', txt)
+                    if m:
+                        return max(0, int(m.group(1)))
+            except Exception:
+                pass
+            return 0
+
         def _scan_dir(folder: Path):
             try:
                 children = sorted(folder.iterdir(), key=lambda p: p.name.lower())
             except OSError:
                 return
+            found_any = False
             for f in children:
                 nl = f.name.lower()
                 if f.is_file() and f.suffix.lower() in VIDEO_EXTS:
                     if 'checker' in nl or 'comp' in nl:
                         self.matched_results.setdefault('comp', f)
+                        found_any = True
                     elif 'cutout' in nl:
                         self.matched_results.setdefault('comp', f)
+                        found_any = True
                     elif 'alpha' in nl:
                         self.matched_results.setdefault('alpha', f)
+                        found_any = True
                 elif f.is_dir() and _list_sequence_frames(f):
                     if any(tok in nl for tok in ('checker', 'comp', 'cutout')):
                         self.matched_results.setdefault('comp', f)
+                        found_any = True
                     elif 'alpha' in nl:
                         self.matched_results.setdefault('alpha', f)
+                        found_any = True
                     elif 'fg' in nl:
                         self.matched_results.setdefault('comp', f)
+                        found_any = True
+            if found_any:
+                self.matched_results['start_offset'] = _read_folder_start_offset(folder)
 
         # Prefer the most recent active destination first if it matches this clip
         if getattr(self, 'destination', None) and self.destination.is_dir() and base in self.destination.name.lower():
@@ -2554,15 +2588,17 @@ class Window(QMainWindow):
         # 2. Maintain persistent stream for result video/sequence (composite or alpha)
         comp_pix = None
         alpha_pix = None
+        res_offset = int(self.matched_results.get('start_offset', 0) or 0)
+        res_idx = frame_idx - res_offset
+
         res_path = self.matched_results.get('comp') or self.matched_results.get('alpha')
-        if res_path and res_path.exists():
+        if res_path and res_path.exists() and res_idx >= 0:
             ok_res = False
             f_res = None
             if res_path.is_dir():
                 res_frames = _list_sequence_frames(res_path)
-                if res_frames:
-                    idx_r = max(0, min(frame_idx, len(res_frames) - 1))
-                    f_res = _decode_sequence_frame_bgr(res_frames[idx_r], is_linear_exr=True)
+                if res_frames and res_idx < len(res_frames):
+                    f_res = _decode_sequence_frame_bgr(res_frames[res_idx], is_linear_exr=True)
                     ok_res = (f_res is not None)
             else:
                 if self._cap_res_path != res_path or self._cap_res is None:
@@ -2572,13 +2608,13 @@ class Window(QMainWindow):
                     self._cap_res_path = res_path
                     self._cap_res_pos = 0
 
-                if self._cap_res_pos == frame_idx:
+                if self._cap_res_pos == res_idx:
                     ok_res, f_res = self._cap_res.read()
                     self._cap_res_pos += 1
                 else:
-                    self._cap_res.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+                    self._cap_res.set(cv2.CAP_PROP_POS_FRAMES, res_idx)
                     ok_res, f_res = self._cap_res.read()
-                    self._cap_res_pos = frame_idx + 1 if ok_res else -1
+                    self._cap_res_pos = res_idx + 1 if ok_res else -1
 
             if ok_res and f_res is not None:
                 rgb_res = cv2.cvtColor(f_res, cv2.COLOR_BGR2RGB)
@@ -2587,14 +2623,13 @@ class Window(QMainWindow):
 
         # 3. Maintain persistent stream for standalone alpha channel
         alpha_path = self.matched_results.get('alpha')
-        if alpha_path and alpha_path.exists():
+        if alpha_path and alpha_path.exists() and res_idx >= 0:
             ok_a = False
             f_a = None
             if alpha_path.is_dir():
                 alpha_frames = _list_sequence_frames(alpha_path)
-                if alpha_frames:
-                    idx_a = max(0, min(frame_idx, len(alpha_frames) - 1))
-                    f_a = _decode_sequence_frame_bgr(alpha_frames[idx_a], is_linear_exr=False)
+                if alpha_frames and res_idx < len(alpha_frames):
+                    f_a = _decode_sequence_frame_bgr(alpha_frames[res_idx], is_linear_exr=False)
                     ok_a = (f_a is not None)
             else:
                 if self._cap_alpha_path != alpha_path or self._cap_alpha is None:
@@ -2604,13 +2639,13 @@ class Window(QMainWindow):
                     self._cap_alpha_path = alpha_path
                     self._cap_alpha_pos = 0
 
-                if self._cap_alpha_pos == frame_idx:
+                if self._cap_alpha_pos == res_idx:
                     ok_a, f_a = self._cap_alpha.read()
                     self._cap_alpha_pos += 1
                 else:
-                    self._cap_alpha.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+                    self._cap_alpha.set(cv2.CAP_PROP_POS_FRAMES, res_idx)
                     ok_a, f_a = self._cap_alpha.read()
-                    self._cap_alpha_pos = frame_idx + 1 if ok_a else -1
+                    self._cap_alpha_pos = res_idx + 1 if ok_a else -1
 
             if ok_a and f_a is not None:
                 rgb_a = cv2.cvtColor(f_a, cv2.COLOR_BGR2RGB)
@@ -3978,7 +4013,15 @@ class Window(QMainWindow):
         try:
             self.destination.mkdir(parents=True, exist_ok=False)
             (self.destination / 'gui_job.json').write_text(
-                json.dumps({'input': str(source), 'arguments': args}, ensure_ascii=False, indent=2),
+                json.dumps(
+                    {
+                        'input': str(source),
+                        'start_offset': int(self.current_opts.get('start_offset') or 0),
+                        'arguments': args,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
                 encoding='utf-8'
             )
         except OSError as exc:
