@@ -6,10 +6,10 @@ GitHub 릴리즈 시 해당 버전의 내용이 릴리즈 노트 및 GUI 업데�
 
 ---
 
-## [v0.1.10] - 2026-11-24
+## [v0.2.0] - 2026-11-24
 
 ### 🚀 주요 업데이트 및 버그 수정 (Highlights)
-- **DaVinci Resolve / Fusion 브릿지 크래시 수정 및 v0.1.10 기능 완전 동기화**
+- **DaVinci Resolve / Fusion 브릿지 크래시 수정 및 v0.2.0 기능 완전 동기화**
   - Fusion 브릿지(`corridorkey_fusion.py`)에서 `ck_root` 선언 전 참조로 발생하던 `UnboundLocalError` 크래시를 수정했습니다.
   - DaVinci Resolve Edit/Color 다이얼로그 및 Fusion Fuse 노드에 `Despill Color (Green/Blue)`, `Despill Method (Average/Max/None)`, `AI Plate Scale (Model Scale)` 컨트롤을 추가하여 GUI/Nuke와 1:1 기능 패리티를 완성했습니다.
   - Resolve/Fusion 서브프로세스에 `encoding="utf-8", errors="replace"`를 적용해 Windows 한글 경로 실행 시 발생하던 `UnicodeDecodeError`를 원천 차단했습니다.
@@ -24,9 +24,11 @@ GitHub 릴리즈 시 해당 버전의 내용이 릴리즈 노트 및 GUI 업데�
   - 뷰포트에서 `alpha` 파일이 존재할 때 디스필 완료된 `comp`/`cutout` 결과를 원본 그린스크린으로 덮어쓰던 버그를 수정했습니다.
   - 뷰포트 프레임 캐시에 ~512 MB 해상도 기반 동적 메모리 상한을 적용해 4K/8K 스크러빙 시 RAM 과점유를 방지했습니다.
   - `ModelManagerDialog` 언어 리스너 누수 해제, 프로젝트 복원 시 `weights` 경로 복원, 배치 렌더 수동 힌트 적용 일관성 수정, 존재하지 않던 `desktop_check.py` 호출을 `scripts/smoke_test_runtime.py`로 교정했습니다.
-- **Foundry Nuke 브릿지 정밀도 및 배선 개선**
-  - Nuke `Read` 노드 직결 시 `1-Frame Preview` 또는 `Custom Range`가 전체 클립을 렌더링하던 버그를 `--start_offset` / `--num_frames` 전달로 해결했습니다.
-  - `create_corridorkeyer_node()` 내부 배선이 디스필된 `Read_Cutout`을 사용하도록 수정하고, Nuke/Resolve/Fusion 브릿지에서 개발자 로컬 `K:\` 하드코딩 경로를 제거했습니다.
+- **Foundry Nuke 기즈모·프리뷰 정밀도 및 내부 배선 완전 수정**
+  - Nuke `Read` 노드 직결 시 `Preview Current Frame` 또는 `Custom Range`가 전체 클립을 렌더링하던 버그를 `--start_offset` / `--num_frames` 전달로 해결했습니다.
+  - `CorridorKeyer.gizmo` 내부에 누락되었던 `Read_Cutout` 노드를 추가하고, 꼬여 있던 `Switch_Output` / `Copy_Refined_Alpha` 스택 연결을 정상화했습니다.
+  - 1채널 EXR 알파가 Nuke에서 `rgba.alpha = 0`으로 읽히던 문제를 `Norm_Alpha (alpha = max(r, a))` 및 DAG `Copy(rgba.red -> rgba.alpha)`로 해결하고, `video` 포맷 1-프레임 프리뷰 시 `frame_mode = "start at"`을 자동 설정하도록 개선했습니다.
+  - Nuke/Resolve/Fusion 브릿지에서 개발자 로컬 `K:\` 하드코딩 경로를 제거했습니다.
 - **업데이터·배치 런처·저장소 정리**
   - 자동 업데이터가 GitHub `CHANGELOG.md`에서 최신 릴리즈 노트를 동적으로 추출하고, Resolve 미설치 환경에서는 불필요한 Resolve 동기화를 건너뛰도록 개선했습니다.
   - `CorridorKey_DRAG_CLIPS_HERE.bat`가 멀티 클립 드래그 앤 드롭(`%*`)을 지원하며, `pytest.ini` 추가 및 루트의 불필요한 `[file dirname [value root.name]]` 폴더를 정리했습니다.
