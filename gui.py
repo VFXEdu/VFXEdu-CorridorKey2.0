@@ -307,6 +307,8 @@ def make_arguments(source: Path, destination: Path, options: dict) -> list[str]:
     if not outputs:
         raise ValueError('Select at least one output.')
 
+    start_offset = int(options.get('start_offset') or 0)
+    num_frames_opt = int(options.get('frames', -1))
     args = [
         '-u', str(ROOT / 'infer.py'),
         '--input', str(source),
@@ -315,12 +317,16 @@ def make_arguments(source: Path, destination: Path, options: dict) -> list[str]:
         '--output_format', options.get('format', 'video'),
         '--despill_strength', str(options.get('despill', 0.5)),
         '--frame_dir_fps', str(options.get('fps', 24.0)),
-        '--num_frames', str(options.get('frames', -1)),
+        '--num_frames', str(num_frames_opt),
         '--start_mode', options.get('start', 'begin'),
         '--seed', str(options.get('seed', 0)),
         '--model_scale', str(options.get('model_scale', 1.0)),
         '--temp_dir', str(options.get('temp_dir') or (ROOT / 'tmp' / destination.name)),
     ]
+    if start_offset > 0:
+        args += ['--start_offset', str(start_offset)]
+    if options.get('format') == 'exr' and options.get('start_frame') is not None:
+        args += ['--start_frame', str(int(options['start_frame']))]
 
     despill_color = str(options.get('despill_color', 'green')).lower()
     if despill_color in ('green', 'blue') and despill_color != 'green':
@@ -341,8 +347,13 @@ def make_arguments(source: Path, destination: Path, options: dict) -> list[str]:
                 p = Path(h_str)
                 hint_mode = '--hint_video' if (p.is_dir() or p.suffix.lower() in VIDEO_EXTS) else '--hint_first_frame'
             args += [hint_mode, h_str]
-            if hint_mode == '--hint_first_frame' and int(options.get('hint_frame', 0) or 0) > 0:
-                args += ['--hint_frame', str(int(options['hint_frame']))]
+            if hint_mode == '--hint_first_frame':
+                raw_hf = int(options.get('hint_frame', 0) or 0)
+                rel_hf = max(0, raw_hf - start_offset)
+                if num_frames_opt > 0:
+                    rel_hf = min(rel_hf, num_frames_opt - 1)
+                if rel_hf > 0:
+                    args += ['--hint_frame', str(rel_hf)]
             if options.get('quality') is not None:
                 args += ['--hint_quality', str(options['quality'])]
             if options.get('carry_hint_quality') is not None:
@@ -3429,6 +3440,14 @@ class Window(QMainWindow):
         outputs = [k for k, v in self.outputs.items() if v.isChecked()]
         despill_col = self.combo_despill_color.currentData() if hasattr(self, 'combo_despill_color') else 'green'
         despill_mth = self.combo_despill_method.currentData() if hasattr(self, 'combo_despill_method') else 'average'
+        start_offset = 0
+        start_frame_exr = None
+        frames_val = self.frames.value() or -1
+        if hasattr(self, 'filmstrip') and self.filmstrip.is_subrange_active():
+            in_f, out_f = self.filmstrip.get_range()
+            start_offset = in_f
+            frames_val = max(1, out_f - in_f + 1)
+            start_frame_exr = in_f + 1
         return dict(
             outputs=outputs,
             format=self.format.currentData(),
@@ -3450,7 +3469,9 @@ class Window(QMainWindow):
             model_scale=self.model_scale.value(),
             stage2_batch=self.stage2_batch.value(),
             weights=self.weights_path.text().strip(),
-            frames=self.frames.value() or -1,
+            frames=frames_val,
+            start_offset=start_offset,
+            start_frame=start_frame_exr,
             start=self.start.currentData(),
             seed=self.seed.value(),
             fps=self.fps.value(),
@@ -3895,9 +3916,14 @@ class Window(QMainWindow):
                     apply_manual_hint_to_batch = True
 
             jobs = []
+            active_resolved = self.current_clip_path.resolve() if self.current_clip_path else None
             for i in range(self.queue.count()):
                 source = Path(self.queue.item(i).text())
                 clip_opts = dict(base_opts)
+                if active_resolved is None or source.resolve() != active_resolved:
+                    clip_opts['start_offset'] = 0
+                    clip_opts['start_frame'] = None
+                    clip_opts['frames'] = self.frames.value() or -1
 
                 # For batch processing, auto-bind companion hint for each clip if present;
                 # otherwise apply the user-approved manual hint or clear clip-specific hint.
@@ -4147,6 +4173,23 @@ class Window(QMainWindow):
         else:
             self._release_video_caps()
             event.accept()
+
+    def keyPressEvent(self, event):
+        focus_w = QApplication.focusWidget()
+        if not isinstance(focus_w, (QLineEdit, QPlainTextEdit, QSpinBox, QDoubleSpinBox)):
+            if event.key() == Qt.Key_I and hasattr(self, 'filmstrip'):
+                self.filmstrip.set_in_point()
+                event.accept()
+                return
+            if event.key() == Qt.Key_O and hasattr(self, 'filmstrip'):
+                self.filmstrip.set_out_point()
+                event.accept()
+                return
+            if event.key() == Qt.Key_Space and hasattr(self, 'filmstrip'):
+                self.filmstrip.toggle_play()
+                event.accept()
+                return
+        super().keyPressEvent(event)
 
 
 def main():

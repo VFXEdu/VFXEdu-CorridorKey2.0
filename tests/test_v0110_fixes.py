@@ -188,6 +188,62 @@ class TestV0110Fixes(unittest.TestCase):
             self.assertIn("--hint_frame", nuke_cmd)
             self.assertEqual(nuke_cmd[nuke_cmd.index("--hint_frame") + 1], "3")
 
+    def test_timeline_in_out_range_and_relative_hint_offset(self):
+        from PySide6.QtWidgets import QApplication
+        import gui
+
+        app = QApplication.instance() or QApplication([])
+        win = gui.Window()
+        win.filmstrip.load_clip_metadata(total_frames=200, fps=24.0, thumbnails=[])
+        self.assertFalse(win.filmstrip.is_subrange_active())
+
+        # Set In = 44 (Frame 45), Out = 119 (Frame 120) -> 76 frames
+        win.filmstrip.seek(44)
+        win.filmstrip.set_in_point()
+        win.filmstrip.seek(119)
+        win.filmstrip.set_out_point()
+        self.assertTrue(win.filmstrip.is_subrange_active())
+        self.assertEqual(win.filmstrip.get_range(), (44, 119))
+        self.assertIn("45–120 (76f)", win.filmstrip.lbl_range.text())
+
+        # Playback loop stays inside [44, 119]
+        win.filmstrip.seek(119)
+        win.filmstrip._on_play_tick()
+        self.assertEqual(win.filmstrip.current_frame, 44)
+
+        # Paint hint on Frame 80 (0-based 79) -> relative offset should be 79 - 44 = 35
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            src = d / "clip.mp4"
+            src.write_bytes(b"fake")
+            hint = d / "hint.png"
+            hint.write_bytes(b"fake")
+
+            idx_exr = win.format.findData("exr")
+            win.format.setCurrentIndex(idx_exr)
+            win.hint.setText(str(hint))
+            win.hint_frame.setValue(80)
+
+            opts = win.options()
+            self.assertEqual(opts["start_offset"], 44)
+            self.assertEqual(opts["frames"], 76)
+            self.assertEqual(opts["start_frame"], 45)
+            self.assertEqual(opts["hint_frame"], 79)
+
+            args = gui.make_arguments(src, d / "out", opts)
+            self.assertIn("--start_offset", args)
+            self.assertEqual(args[args.index("--start_offset") + 1], "44")
+            self.assertIn("--num_frames", args)
+            self.assertEqual(args[args.index("--num_frames") + 1], "76")
+            self.assertIn("--start_frame", args)
+            self.assertEqual(args[args.index("--start_frame") + 1], "45")
+            self.assertIn("--hint_frame", args)
+            self.assertEqual(args[args.index("--hint_frame") + 1], "35")
+
+        win.filmstrip.reset_range()
+        self.assertFalse(win.filmstrip.is_subrange_active())
+        win.close()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -338,16 +338,19 @@ class VFXViewport(QWidget):
 # 3. Filmstrip Scrubber & Transport Timeline
 # =============================================================================
 class FilmstripTimeline(QWidget):
-    """Horizontal video filmstrip with draggable playhead and transport controls."""
+    """Horizontal video filmstrip with draggable playhead, In/Out range handles, and transport controls."""
     frame_changed = Signal(int)
+    range_changed = Signal(int, int)  # 0-based inclusive (in_frame, out_frame)
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self.setFixedHeight(82)
+        self.setFixedHeight(86)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         self.total_frames = 0
         self.current_frame = 0
+        self.in_frame = 0
+        self.out_frame = 0
         self.fps = 24.0
         self.thumbnails: List[QPixmap] = []
         self.is_scrubbing = False
@@ -372,6 +375,58 @@ class FilmstripTimeline(QWidget):
         self.lbl_counter = QLabel("0 / 0")
         self.lbl_counter.setStyleSheet("font-weight:bold; font-size:12px; color:#c9d1d9; min-width:85px;")
         h_trans.addWidget(self.lbl_counter)
+
+        # In / Out Range Controls
+        range_btn_style = """
+            QPushButton {
+                background: #14222c;
+                border: 1px solid #23475e;
+                border-radius: 4px;
+                color: #7ee3ff;
+                font-size: 11px;
+                font-weight: bold;
+                padding: 2px 7px;
+            }
+            QPushButton:hover {
+                background: #1c3445;
+                border-color: #00d2ff;
+                color: #ffffff;
+            }
+        """
+        self.btn_set_in = QPushButton("[ In")
+        self.btn_set_in.setToolTip("Set Render In Point at Current Frame (Shortcut: I)")
+        self.btn_set_in.setStyleSheet(range_btn_style)
+        self.btn_set_in.clicked.connect(lambda: self.set_in_point())
+        h_trans.addWidget(self.btn_set_in)
+
+        self.btn_set_out = QPushButton("Out ]")
+        self.btn_set_out.setToolTip("Set Render Out Point at Current Frame (Shortcut: O)")
+        self.btn_set_out.setStyleSheet(range_btn_style)
+        self.btn_set_out.clicked.connect(lambda: self.set_out_point())
+        h_trans.addWidget(self.btn_set_out)
+
+        self.btn_reset_range = QPushButton("All")
+        self.btn_reset_range.setToolTip("Reset Render Range to Full Clip")
+        self.btn_reset_range.setStyleSheet("""
+            QPushButton {
+                background: #191c24;
+                border: 1px solid #2a313d;
+                border-radius: 4px;
+                color: #8b949e;
+                font-size: 10px;
+                padding: 2px 6px;
+            }
+            QPushButton:hover {
+                background: #232834;
+                color: #ffffff;
+            }
+        """)
+        self.btn_reset_range.clicked.connect(self.reset_range)
+        h_trans.addWidget(self.btn_reset_range)
+
+        self.lbl_range = QLabel("Range: Full")
+        self.lbl_range.setStyleSheet("color:#7e899b; font-size:11px; font-weight:bold; padding-left:4px;")
+        h_trans.addWidget(self.lbl_range)
 
         h_trans.addStretch(1)
 
@@ -402,11 +457,11 @@ class FilmstripTimeline(QWidget):
             b.setStyleSheet(btn_style)
             h_trans.addWidget(b)
 
-        self.btn_first.clicked.connect(lambda: self.seek(0))
+        self.btn_first.clicked.connect(lambda: self.seek(self.in_frame if self.current_frame != self.in_frame else 0))
         self.btn_prev.clicked.connect(lambda: self.seek(max(0, self.current_frame - 1)))
         self.btn_play.clicked.connect(self.toggle_play)
         self.btn_next.clicked.connect(lambda: self.seek(min(max(0, self.total_frames - 1), self.current_frame + 1)))
-        self.btn_last.clicked.connect(lambda: self.seek(max(0, self.total_frames - 1)))
+        self.btn_last.clicked.connect(lambda: self.seek(self.out_frame if self.current_frame != self.out_frame else max(0, self.total_frames - 1)))
 
         h_trans.addStretch(1)
 
@@ -420,6 +475,7 @@ class FilmstripTimeline(QWidget):
         self.strip_widget = _FilmstripStrip(self)
         self.strip_widget.setFixedHeight(48)
         self.strip_widget.frame_picked.connect(self.seek)
+        self.strip_widget.range_changed.connect(self._on_strip_range_changed)
         main_layout.addWidget(self.strip_widget)
 
     def load_clip_metadata(self, total_frames: int, fps: float, thumbnails: List[QPixmap]):
@@ -427,10 +483,72 @@ class FilmstripTimeline(QWidget):
         self.total_frames = max(0, total_frames)
         self.fps = fps if fps > 0 else 24.0
         self.current_frame = 0
+        self.in_frame = 0
+        self.out_frame = max(0, self.total_frames - 1)
         self.thumbnails = thumbnails
         self.strip_widget.set_thumbnails(thumbnails, self.total_frames)
+        self.strip_widget.set_range(self.in_frame, self.out_frame)
+        self._update_range_label()
         self.seek(0)
         self.lbl_fps.setText(f"Display: as is  {self.fps:.2f} fps")
+
+    def is_subrange_active(self) -> bool:
+        return self.total_frames > 0 and (self.in_frame > 0 or self.out_frame < self.total_frames - 1)
+
+    def get_range(self) -> tuple[int, int]:
+        return (self.in_frame, self.out_frame)
+
+    def set_range(self, in_frame: int, out_frame: int, emit_signal: bool = True):
+        if self.total_frames <= 0:
+            self.in_frame = 0
+            self.out_frame = 0
+            self._update_range_label()
+            return
+        max_f = self.total_frames - 1
+        in_f = max(0, min(int(in_frame), max_f))
+        out_f = max(in_f, min(int(out_frame), max_f))
+        self.in_frame = in_f
+        self.out_frame = out_f
+        self.strip_widget.set_range(self.in_frame, self.out_frame)
+        self._update_range_label()
+        if emit_signal:
+            self.range_changed.emit(self.in_frame, self.out_frame)
+
+    def set_in_point(self, frame_idx: Optional[int] = None):
+        if self.total_frames <= 0:
+            return
+        target = self.current_frame if frame_idx is None else int(frame_idx)
+        target = max(0, min(target, self.total_frames - 1))
+        out_f = max(target, self.out_frame)
+        self.set_range(target, out_f)
+
+    def set_out_point(self, frame_idx: Optional[int] = None):
+        if self.total_frames <= 0:
+            return
+        target = self.current_frame if frame_idx is None else int(frame_idx)
+        target = max(0, min(target, self.total_frames - 1))
+        in_f = min(self.in_frame, target)
+        self.set_range(in_f, target)
+
+    def reset_range(self):
+        if self.total_frames <= 0:
+            return
+        self.set_range(0, self.total_frames - 1)
+
+    def _on_strip_range_changed(self, in_f: int, out_f: int):
+        self.in_frame = in_f
+        self.out_frame = out_f
+        self._update_range_label()
+        self.range_changed.emit(in_f, out_f)
+
+    def _update_range_label(self):
+        if self.total_frames <= 0 or not self.is_subrange_active():
+            self.lbl_range.setText("Range: Full")
+            self.lbl_range.setStyleSheet("color:#7e899b; font-size:11px; font-weight:bold; padding-left:4px;")
+        else:
+            count = self.out_frame - self.in_frame + 1
+            self.lbl_range.setText(f"Range: {self.in_frame + 1}–{self.out_frame + 1} ({count}f)")
+            self.lbl_range.setStyleSheet("color:#38e8b0; font-size:11px; font-weight:bold; padding-left:4px;")
 
     def seek(self, frame_idx: int):
         if self.total_frames <= 0:
@@ -448,6 +566,8 @@ class FilmstripTimeline(QWidget):
             self.btn_play.setText("▶")
         else:
             if self.total_frames > 1:
+                if self.current_frame < self.in_frame or self.current_frame > self.out_frame:
+                    self.seek(self.in_frame)
                 interval_ms = int(1000.0 / max(1.0, self.fps))
                 self.play_timer.start(interval_ms)
                 self.is_playing = True
@@ -456,13 +576,16 @@ class FilmstripTimeline(QWidget):
     def _on_play_tick(self):
         if self.total_frames <= 1:
             return
-        nxt = (self.current_frame + 1) % self.total_frames
+        nxt = self.current_frame + 1
+        if nxt > self.out_frame or nxt < self.in_frame:
+            nxt = self.in_frame
         self.seek(nxt)
 
 
 class _FilmstripStrip(QWidget):
-    """Custom drawing canvas for the filmstrip thumbnails and yellow playhead bar."""
+    """Custom drawing canvas for filmstrip thumbnails, In/Out range handles, and yellow playhead bar."""
     frame_picked = Signal(int)
+    range_changed = Signal(int, int)
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -470,40 +593,106 @@ class _FilmstripStrip(QWidget):
         self.thumbnails: List[QPixmap] = []
         self.total_frames = 0
         self.current_frame = 0
-        self.is_dragging = False
+        self.in_frame = 0
+        self.out_frame = 0
+        self.drag_mode: Optional[str] = None  # "in" | "out" | "playhead" | None
 
     def set_thumbnails(self, thumbs: List[QPixmap], total_frames: int):
         self.thumbnails = thumbs
         self.total_frames = total_frames
+        self.in_frame = 0
+        self.out_frame = max(0, total_frames - 1)
+        self.update()
+
+    def set_range(self, in_frame: int, out_frame: int):
+        if self.total_frames <= 0:
+            self.in_frame = 0
+            self.out_frame = 0
+        else:
+            max_f = self.total_frames - 1
+            self.in_frame = max(0, min(in_frame, max_f))
+            self.out_frame = max(self.in_frame, min(out_frame, max_f))
         self.update()
 
     def set_current_frame(self, frame: int):
         self.current_frame = frame
         self.update()
 
-    def _pick_frame_from_x(self, x: float):
+    def _frame_to_x(self, frame: int) -> float:
+        w = max(1, self.width() - 2)
+        if self.total_frames <= 1:
+            return 1.0
+        return (frame / (self.total_frames - 1)) * w + 1.0
+
+    def _x_to_frame(self, x: float) -> int:
+        if self.total_frames <= 1:
+            return 0
+        ratio = max(0.0, min(1.0, (x - 1.0) / max(1.0, self.width() - 2.0)))
+        return int(round(ratio * (self.total_frames - 1)))
+
+    def _hit_test_handle(self, x: float) -> Optional[str]:
+        if self.total_frames <= 1:
+            return None
+        in_x = self._frame_to_x(self.in_frame)
+        out_x = self._frame_to_x(self.out_frame)
+        d_in = abs(x - in_x)
+        d_out = abs(x - out_x)
+        thresh = 9.0
+        if d_in <= thresh and d_out <= thresh:
+            return "in" if x <= (in_x + out_x) * 0.5 else "out"
+        if d_in <= thresh:
+            return "in"
+        if d_out <= thresh:
+            return "out"
+        return None
+
+    def _apply_drag(self, x: float):
         if self.total_frames <= 0:
             return
-        ratio = max(0.0, min(1.0, x / max(1, self.width())))
-        frame = int(ratio * (self.total_frames - 1))
-        if frame != self.current_frame:
-            self.set_current_frame(frame)
-            self.frame_picked.emit(frame)
+        frame = self._x_to_frame(x)
+        if self.drag_mode == "in":
+            new_in = min(frame, self.out_frame)
+            if new_in != self.in_frame:
+                self.in_frame = new_in
+                self.range_changed.emit(self.in_frame, self.out_frame)
+            if new_in != self.current_frame:
+                self.set_current_frame(new_in)
+                self.frame_picked.emit(new_in)
+            self.update()
+        elif self.drag_mode == "out":
+            new_out = max(frame, self.in_frame)
+            if new_out != self.out_frame:
+                self.out_frame = new_out
+                self.range_changed.emit(self.in_frame, self.out_frame)
+            if new_out != self.current_frame:
+                self.set_current_frame(new_out)
+                self.frame_picked.emit(new_out)
+            self.update()
+        elif self.drag_mode == "playhead":
+            if frame != self.current_frame:
+                self.set_current_frame(frame)
+                self.frame_picked.emit(frame)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            self.is_dragging = True
-            self._pick_frame_from_x(event.position().x())
+            x = event.position().x()
+            handle = self._hit_test_handle(x)
+            self.drag_mode = handle or "playhead"
+            self._apply_drag(x)
             event.accept()
 
     def mouseMoveEvent(self, event):
-        if self.is_dragging:
-            self._pick_frame_from_x(event.position().x())
+        x = event.position().x()
+        if self.drag_mode is not None:
+            self._apply_drag(x)
             event.accept()
+        else:
+            handle = self._hit_test_handle(x)
+            self.setCursor(Qt.SizeHorCursor if handle else Qt.ArrowCursor)
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton:
-            self.is_dragging = False
+            self.drag_mode = None
             event.accept()
 
     def paintEvent(self, event: QPaintEvent):
@@ -521,13 +710,36 @@ class _FilmstripStrip(QWidget):
                 rect = QRectF(i * tile_w, 0, tile_w + 1, h)
                 painter.drawPixmap(rect.toRect(), pix)
 
+        # Draw In/Out selection dim overlay and handles
+        if self.total_frames > 1:
+            in_x = int(round(self._frame_to_x(self.in_frame)))
+            out_x = int(round(self._frame_to_x(self.out_frame)))
+            is_sub = (self.in_frame > 0 or self.out_frame < self.total_frames - 1)
+            if is_sub:
+                dim = QColor(8, 10, 14, 175)
+                if in_x > 0:
+                    painter.fillRect(0, 0, in_x, h, dim)
+                if out_x < w:
+                    painter.fillRect(out_x, 0, w - out_x, h, dim)
+                # Top & bottom cyan highlight rails over active range
+                painter.setPen(QPen(QColor("#00d2ff"), 2))
+                painter.drawLine(in_x, 1, out_x, 1)
+                painter.drawLine(in_x, h - 2, out_x, h - 2)
+
+            # In handle (left bracket grip)
+            in_col = QColor("#38e8b0") if is_sub else QColor("#3a5a6e")
+            painter.fillRect(max(0, in_x - 2), 0, 5, h, in_col)
+            # Out handle (right bracket grip)
+            out_col = QColor("#00d2ff") if is_sub else QColor("#3a5a6e")
+            painter.fillRect(min(w - 5, out_x - 2), 0, 5, h, out_col)
+
         # Dark border
         painter.setPen(QPen(QColor("#20242e"), 1))
         painter.drawRect(0, 0, w - 1, h - 1)
 
         # Draw playhead indicator
         if self.total_frames > 0:
-            px = int((self.current_frame / max(1, self.total_frames - 1)) * (w - 2)) + 1
+            px = int(round(self._frame_to_x(self.current_frame)))
             # Playhead line
             painter.setPen(QPen(QColor("#e5a93c"), 2))
             painter.drawLine(px, 0, px, h)
