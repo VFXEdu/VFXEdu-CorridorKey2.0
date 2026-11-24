@@ -138,6 +138,56 @@ class TestV0110Fixes(unittest.TestCase):
             self.assertEqual(win.matched_results.get("alpha"), alpha_dir)
         win.close()
 
+    def test_keyframe_hint_arguments_and_backward_reader(self):
+        from corridorkey.video_io import probe_frame_dir_meta, SequentialFrameDirWindowReader
+        import gui
+        from nuke import corridorkey_nuke
+
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            img = np.zeros((64, 64, 3), dtype=np.uint8)
+            for idx in range(1, 7):
+                cv2.imwrite(str(d / f"f_{idx:04d}.png"), img)
+            hint_img = d / "hint.png"
+            cv2.imwrite(str(hint_img), np.full((64, 64), 255, dtype=np.uint8))
+
+            # 1. Verify backward seeking in SequentialFrameDirWindowReader
+            meta = probe_frame_dir_meta(
+                str(d), num_frames=-1, shape_quantum=128, fps=24.0,
+                exr_linear=False, model_scale=1.0,
+            )
+            reader = SequentialFrameDirWindowReader(str(d), meta)
+            m1, _, _ = reader.window(2, 6)
+            m0, _, _ = reader.window(0, 4)
+            self.assertEqual(m1.shape[0], 4)
+            self.assertEqual(m0.shape[0], 4)
+            reader.close()
+
+            # 2. Verify GUI make_arguments passes --hint_frame when > 0
+            args = gui.make_arguments(
+                d, d / "out",
+                {
+                    "outputs": ["alpha"],
+                    "hint_mode": "--hint_first_frame",
+                    "hint": str(hint_img),
+                    "hint_frame": 4,
+                },
+            )
+            self.assertIn("--hint_frame", args)
+            self.assertEqual(args[args.index("--hint_frame") + 1], "4")
+
+            # 3. Verify Nuke build_command_args passes --hint_frame when > 0
+            nuke_cmd = corridorkey_nuke.build_command_args(
+                ck_root=ROOT,
+                python_exe=Path(sys.executable),
+                input_path=str(d),
+                output_dir=str(d / "out"),
+                hint_first_frame=str(hint_img),
+                hint_frame=3,
+            )
+            self.assertIn("--hint_frame", nuke_cmd)
+            self.assertEqual(nuke_cmd[nuke_cmd.index("--hint_frame") + 1], "3")
+
 
 if __name__ == "__main__":
     unittest.main()

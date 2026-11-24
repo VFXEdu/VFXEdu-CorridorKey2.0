@@ -513,6 +513,10 @@ class SequentialVideoWindowReader:
             self.next_t += 1
 
     def window(self, t0: int, t1: int):
+        if t0 < self.next_t and any(t not in self.cache for t in range(t0, min(t1, self.next_t))):
+            self.cache.clear()
+            self.cap.set(cv2.CAP_PROP_POS_FRAMES, self.start_frame + t0)
+            self.next_t = t0
         self._read_until(t1)
         model = torch.stack([self.cache[t][0] for t in range(t0, t1)])
         foundation = torch.stack([self.cache[t][1] for t in range(t0, t1)])
@@ -540,6 +544,9 @@ class SequentialFrameDirWindowReader:
             self.next_t += 1
 
     def window(self, t0: int, t1: int):
+        if t0 < self.next_t and any(t not in self.cache for t in range(t0, min(t1, self.next_t))):
+            self.cache.clear()
+            self.next_t = t0
         self._read_until(t1)
         model = torch.stack([self.cache[t][0] for t in range(t0, t1)])
         foundation = torch.stack([self.cache[t][1] for t in range(t0, t1)])

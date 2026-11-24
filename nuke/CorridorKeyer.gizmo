@@ -33,7 +33,7 @@ Gizmo {
  addUserKnob {4 despill_method l "Despill Method" M {Average Max None}}
  addUserKnob {7 hint_quality l "Hint Quality (Trust)" t "0.65~0.75: Rough RotoPaint brush hint (AI auto-snaps to natural subject edges)\n0.90~0.95: Detailed alpha mask (strictly follow input mask)" R 0 1}
  hint_quality 0.75
- addUserKnob {4 hint_mode l "Hint Conditioning Mode" M {"First Frame Only (Fast)" "Full Animated Sequence (Roto)"}}
+ addUserKnob {4 hint_mode l "Hint Conditioning Mode" M {"First Frame Only (Fast)" "Current Frame Keyframe (Bidirectional)" "Full Animated Sequence (Roto)"}}
  addUserKnob {6 carry_hint l "Carry Hint to Long Clip" +STARTLINE}
  carry_hint true
  addUserKnob {4 vram_preset l "GPU VRAM Profile" t "Target GPU hardware memory profile" M {"Auto (Smart Profile)" "24GB+ (RTX 4090, 5090)" "16GB (RTX 4080)" "12GB (RTX 3060, 4070)" "8GB (Laptop / Low VRAM)" "Custom (Use Hann Window below)"}}

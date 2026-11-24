@@ -103,7 +103,10 @@ def main():
                     help="Runtime checkpoint (.safetensors or legacy .pt). "
                          "Defaults to weights/corridorkey_v2.safetensors.")
     ap.add_argument("--hint_first_frame", default=None,
-                    help="Optional matte image/dir; first frame only.")
+                    help="Optional single-frame matte image/dir (default: frame 0, or --hint_frame).")
+    ap.add_argument("--hint_frame", type=int, default=0,
+                    help="0-based frame index within the processed clip where --hint_first_frame applies. "
+                         "When > 0, Hann Stage 1 propagates bidirectionally from this keyframe. Default: 0.")
     ap.add_argument("--hint_video", default=None,
                     help="Optional full-frame hint video or frame directory.")
     ap.add_argument("--hint_quality", type=float, default=0.95)
@@ -200,6 +203,7 @@ def main():
         hann_stride=hann_stride,
         auto_vram=auto_vram,
         carry_hint=not args.no_carry_hint,
+        hint_frame=args.hint_frame,
         hint_quality=args.hint_quality,
         carry_hint_quality=args.carry_hint_quality,
         model_scale=args.model_scale,

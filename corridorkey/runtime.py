@@ -100,6 +100,7 @@ class InferenceConfig:
     hann_chunk: int = 80
     hann_stride: int = 40
     carry_hint: bool = True
+    hint_frame: int = 0
     hint_quality: float = 0.95
     carry_hint_quality: float = 0.95
     shape_quantum: int = 128
@@ -452,7 +453,8 @@ def hann_stage1_stream(model, source, meta, *, reader_cls, reader_kind: str,
                        foundation_paths,
                        carry_hint_from_aux: bool,
                        carry_hint_quality: float,
-                       on_baton_frames):
+                       on_baton_frames,
+                       initial_hint_frame: int = 0):
     device = next(model.stage1.parameters()).device
     T_all = int(meta["num_frames"])
     H, W = meta["shape_hw"]
@@ -460,14 +462,46 @@ def hann_stage1_stream(model, source, meta, *, reader_cls, reader_kind: str,
     h16, w16 = H // 16, W // 16
     starts = window_starts(T_all, chunk, stride)
     overlap = max(0, chunk - stride)
+    hint_idx = max(0, min(int(initial_hint_frame), max(0, T_all - 1)))
+    use_bidirectional = (
+        initial_hint is not None
+        and none_path(full_hint_video_path) is None
+        and hint_idx > 0
+    )
+
     baton_fp16 = None
     if on_baton_frames is None:
         baton_fp16 = np.memmap(baton_path, dtype=np.float16, mode="w+",
                                shape=(T_all, d_16, h16, w16))
     live_acc = {}
     live_w = {}
-    print(f"    Hann stage1: chunk={chunk}, stride={stride}, "
-          f"windows={len(starts)}, baton_grid={w16}x{h16}")
+
+    if use_bidirectional:
+        # Pick the window whose center is closest to hint_idx as the anchor
+        covering = [
+            idx for idx, s in enumerate(starts)
+            if s <= hint_idx < min(s + chunk, T_all)
+        ]
+        if covering:
+            anchor_idx = min(
+                covering,
+                key=lambda idx: abs((starts[idx] + min(starts[idx] + chunk, T_all)) * 0.5 - hint_idx),
+            )
+        else:
+            anchor_idx = 0
+        forward_order = list(range(anchor_idx + 1, len(starts)))
+        backward_order = list(range(anchor_idx - 1, -1, -1))
+        win_schedule = (
+            [(anchor_idx, "anchor")]
+            + [(idx, "forward") for idx in forward_order]
+            + [(idx, "backward") for idx in backward_order]
+        )
+        print(f"    Hann stage1 (bidirectional from hint_frame={hint_idx}, anchor_win={anchor_idx + 1}/{len(starts)}): "
+              f"chunk={chunk}, stride={stride}, windows={len(starts)}, baton_grid={w16}x{h16}")
+    else:
+        win_schedule = [(idx, "forward") for idx in range(len(starts))]
+        print(f"    Hann stage1: chunk={chunk}, stride={stride}, "
+              f"windows={len(starts)}, baton_grid={w16}x{h16}")
 
     rvm_map = None
     if rvm_path is not None:
@@ -485,6 +519,7 @@ def hann_stage1_stream(model, source, meta, *, reader_cls, reader_kind: str,
     reader = reader_cls(str(source), meta)
     hint_reader = make_hint_reader(full_hint_video_path, meta)
     carry_cache = {}
+    anchor_carry_cache = {}
     stage2_frame_cache = {}
 
     def flush_before(t_limit: int):
@@ -500,7 +535,14 @@ def hann_stage1_stream(model, source, meta, *, reader_cls, reader_kind: str,
             on_baton_frames(ready)
 
     try:
-        for i, t0 in enumerate(starts):
+        prev_phase = None
+        for step_num, (i, phase) in enumerate(win_schedule):
+            if phase == "backward" and prev_phase != "backward":
+                # Restore anchor carry hints so backward pass propagates cleanly from anchor
+                carry_cache = {k: v.clone() for k, v in anchor_carry_cache.items()}
+            prev_phase = phase
+
+            t0 = starts[i]
             t1 = min(t0 + chunk, T_all)
             Tc = t1 - t0
             model_chunk, display_chunk, review_chunk = reader.window(t0, t1)
@@ -517,10 +559,11 @@ def hann_stage1_stream(model, source, meta, *, reader_cls, reader_kind: str,
                         hint_cpu[0, j] = carry_cache[t_abs]
                         hint_quality_cpu[0, j] = float(carry_hint_quality)
                         hint_present[0, j] = True
-                if initial_hint is not None and t0 == 0:
-                    hint_cpu[0, 0] = initial_hint.to(dtype=hint_cpu.dtype)
-                    hint_quality_cpu[0, 0] = float(initial_hint_quality)
-                    hint_present[0, 0] = True
+                if initial_hint is not None and t0 <= hint_idx < t1:
+                    j_hint = hint_idx - t0
+                    hint_cpu[0, j_hint] = initial_hint.to(dtype=hint_cpu.dtype)
+                    hint_quality_cpu[0, j_hint] = float(initial_hint_quality)
+                    hint_present[0, j_hint] = True
             if not bool(hint_present.any().item()):
                 hint_quality_cpu.fill_(-1.0)
 
@@ -569,9 +612,18 @@ def hann_stage1_stream(model, source, meta, *, reader_cls, reader_kind: str,
                 aux_cpu = aux_full.to("cpu", dtype=torch.bfloat16)
                 for j, t_abs in enumerate(range(t0, t1)):
                     carry_cache[t_abs] = aux_cpu[j].clone()
-                next_start = starts[i + 1] if i + 1 < len(starts) else T_all
-                for old_t in [k for k in carry_cache if k < next_start]:
-                    del carry_cache[old_t]
+                if phase == "anchor":
+                    anchor_carry_cache = {k: v.clone() for k, v in carry_cache.items()}
+                elif phase == "forward":
+                    next_i = win_schedule[step_num + 1][0] if (step_num + 1 < len(win_schedule) and win_schedule[step_num + 1][1] == "forward") else None
+                    next_start = starts[next_i] if next_i is not None else T_all
+                    for old_t in [k for k in carry_cache if k < next_start]:
+                        del carry_cache[old_t]
+                elif phase == "backward":
+                    next_i = win_schedule[step_num + 1][0] if (step_num + 1 < len(win_schedule) and win_schedule[step_num + 1][1] == "backward") else None
+                    next_end = min(starts[next_i] + chunk, T_all) if next_i is not None else 0
+                    for old_t in [k for k in carry_cache if k >= next_end]:
+                        del carry_cache[old_t]
                 del aux_alpha, aux_full, aux_cpu
             w = taper_weights(Tc, overlap, is_first=(i == 0),
                               is_last=(i == len(starts) - 1),
@@ -585,15 +637,16 @@ def hann_stage1_stream(model, source, meta, *, reader_cls, reader_kind: str,
                 else:
                     live_acc[t_abs] += weighted[j]
                     live_w[t_abs] += float(w_np[j])
-            next_start = starts[i + 1] if i + 1 < len(starts) else T_all
             del s1, baton_gpu, weighted, ff, cradio_feat, moge_feat, rvm_feat
             del rgb_c, hint_c, hint_quality_c, hint_cpu, hint_quality_cpu
             del model_chunk, display_chunk, review_chunk
-            flush_before(next_start)
+            if not use_bidirectional:
+                next_start = starts[i + 1] if i + 1 < len(starts) else T_all
+                flush_before(next_start)
             # Automatic memory purge to prevent VRAM fragmentation during long footage
-            if (i + 1) % 4 == 0 or (i + 1) == len(starts):
+            if (step_num + 1) % 4 == 0 or (step_num + 1) == len(win_schedule):
                 torch.cuda.empty_cache()
-            print(f"      window {i + 1}/{len(starts)} [{t0}:{t1}]", flush=True)
+            print(f"      window {step_num + 1}/{len(win_schedule)} [{t0}:{t1}]", flush=True)
         torch.cuda.synchronize()
         flush_before(T_all + 1)
     finally:
@@ -603,7 +656,7 @@ def hann_stage1_stream(model, source, meta, *, reader_cls, reader_kind: str,
 
     if baton_fp16 is not None:
         baton_fp16.flush()
-    del baton_fp16, live_acc, live_w, rvm_map, cradio_map, moge_map
+    del baton_fp16, live_acc, live_w, rvm_map, cradio_map, moge_map, anchor_carry_cache
     torch.cuda.empty_cache()
 
 
@@ -880,6 +933,7 @@ def run_inference(model, input_path: str, output_dir: str, cfg: InferenceConfig,
                 if cfg.output_format == "exr":
                     sf.write(f"EXR Pixel Type: {cfg.exr_dtype}\n")
                 sf.write(f"Hint First Frame: {initial_hint_path}\n")
+                sf.write(f"Hint Frame Index: {cfg.hint_frame}\n")
                 sf.write(f"Hint Video: {hint_video_path}\n")
                 sf.write(f"Hint Quality (Trust): {cfg.hint_quality}\n")
                 sf.write(f"Carry Hint: {cfg.carry_hint}\n")
@@ -969,6 +1023,13 @@ def run_inference(model, input_path: str, output_dir: str, cfg: InferenceConfig,
                     _stage2_counter = 0
                     torch.cuda.empty_cache()
 
+        use_bidirectional = (
+            initial_hint is not None
+            and none_path(hint_video_path) is None
+            and int(cfg.hint_frame) > 0
+        )
+        use_baton_memmap = bool(cfg.low_vram or use_bidirectional)
+
         hann_stage1_stream(
             model, input_path, meta, reader_cls=reader_cls,
             reader_kind=reader_kind, chunk=cfg.hann_chunk, stride=cfg.hann_stride,
@@ -979,9 +1040,10 @@ def run_inference(model, input_path: str, output_dir: str, cfg: InferenceConfig,
             rvm_path=rvm_feat_path, foundation_paths=foundation_paths,
             carry_hint_from_aux=cfg.carry_hint,
             carry_hint_quality=cfg.carry_hint_quality,
-            on_baton_frames=None if cfg.low_vram else write_prediction_batches)
+            on_baton_frames=None if use_baton_memmap else write_prediction_batches,
+            initial_hint_frame=int(cfg.hint_frame))
 
-        if cfg.low_vram:
+        if use_baton_memmap:
             _phase2_setup(model)
             baton = np.memmap(
                 baton_path, dtype=np.float16, mode="r",

@@ -341,6 +341,8 @@ def make_arguments(source: Path, destination: Path, options: dict) -> list[str]:
                 p = Path(h_str)
                 hint_mode = '--hint_video' if (p.is_dir() or p.suffix.lower() in VIDEO_EXTS) else '--hint_first_frame'
             args += [hint_mode, h_str]
+            if hint_mode == '--hint_first_frame' and int(options.get('hint_frame', 0) or 0) > 0:
+                args += ['--hint_frame', str(int(options['hint_frame']))]
             if options.get('quality') is not None:
                 args += ['--hint_quality', str(options['quality'])]
             if options.get('carry_hint_quality') is not None:
@@ -1684,6 +1686,25 @@ class Window(QMainWindow):
         self.chk_use_hint.toggled.connect(_on_chk_hint_toggled)
         self.lbl_row_hint_mode = QLabel(tr('lbl_keying_mode'))
         f_hint.addRow(self.lbl_row_hint_mode, self.hint_mode)
+
+        h_hframe = QHBoxLayout()
+        self.hint_frame = QSpinBox()
+        self.hint_frame.setRange(1, 999999)
+        self.hint_frame.setValue(1)
+        self.hint_frame.setToolTip(
+            "1-based frame index where the single-frame Hint Mask applies.\n"
+            "Frame 1 = First frame. Frame > 1 = Bidirectional propagation from that keyframe."
+        )
+        self.btn_hint_frame_cur = QPushButton("Current")
+        self.btn_hint_frame_cur.setFixedWidth(68)
+        self.btn_hint_frame_cur.setToolTip("Set Hint Frame to the currently displayed viewport frame")
+        self.btn_hint_frame_cur.clicked.connect(
+            lambda: self.hint_frame.setValue(int(getattr(self.filmstrip, 'current_frame', 0)) + 1)
+        )
+        h_hframe.addWidget(self.hint_frame, 1)
+        h_hframe.addWidget(self.btn_hint_frame_cur)
+        self.lbl_row_hint_frame = QLabel("Hint Frame #")
+        f_hint.addRow(self.lbl_row_hint_frame, h_hframe)
 
         h_qual = QHBoxLayout()
         self.quality = QDoubleSpinBox()
@@ -3272,10 +3293,16 @@ class Window(QMainWindow):
             parent=self,
         )
 
+        painted_frame_1based = int(getattr(self.filmstrip, 'current_frame', 0)) + 1
+
         def on_applied(saved_path: str):
             self.hint_mode.setCurrentIndex(1)
             self.hint.setText(saved_path)
-            self.log.appendPlainText(tr('log_brush_applied', path=saved_path))
+            if hasattr(self, 'hint_frame'):
+                self.hint_frame.setValue(painted_frame_1based)
+            self.log.appendPlainText(
+                tr('log_brush_applied', path=saved_path) + f" [Hint Frame #{painted_frame_1based}]"
+            )
 
         editor.applied_hint.connect(on_applied)
         editor.exec()
@@ -3412,6 +3439,7 @@ class Window(QMainWindow):
             cutout_linear=self.cutout_linear.isChecked(),
             hint_mode=self.hint_mode.currentData(),
             hint=self.hint.text().strip(),
+            hint_frame=max(0, self.hint_frame.value() - 1) if hasattr(self, 'hint_frame') else 0,
             quality=self.quality.value(),
             carry_hint_quality=self.carry_quality.value(),
             no_carry_hint=self.no_carry_hint.isChecked(),
@@ -3528,6 +3556,8 @@ class Window(QMainWindow):
                 self.hint_mode.setCurrentIndex(idx)
         if "hint" in opts:
             self.hint.setText(str(opts["hint"]))
+        if "hint_frame" in opts and hasattr(self, "hint_frame"):
+            self.hint_frame.setValue(max(1, int(opts["hint_frame"]) + 1))
         if "quality" in opts:
             self.quality.setValue(float(opts["quality"]))
         if "carry_hint_quality" in opts:

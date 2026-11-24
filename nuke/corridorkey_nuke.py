@@ -114,6 +114,7 @@ def build_command_args(
     hann_chunk: int = 0,
     hann_stride: int = 0,
     hint_first_frame: str | None = None,
+    hint_frame: int = 0,
     hint_video: str | None = None,
     carry_hint: bool = True,
     hint_quality: float = 0.75,
@@ -180,6 +181,8 @@ def build_command_args(
         cmd.extend(["--carry_hint_quality", f"{float(carry_hint_quality):.2f}"])
     elif hint_first_frame and os.path.exists(hint_first_frame):
         cmd.extend(["--hint_first_frame", str(hint_first_frame)])
+        if int(hint_frame) > 0:
+            cmd.extend(["--hint_frame", str(int(hint_frame))])
         cmd.extend(["--hint_quality", f"{float(hint_quality):.2f}"])
         cmd.extend(["--carry_hint_quality", f"{float(carry_hint_quality):.2f}"])
 
@@ -473,6 +476,7 @@ def execute_keyer(node, preview_single_frame: bool = False) -> bool:
     hint_node = node.input(1)
     hint_file_path = None
     hint_video_path = None
+    hint_frame_idx = 0
     hint_mode_val = node.knob("hint_mode").value() if node.knob("hint_mode") else "First Frame Only (Fast)"
 
     if hint_node:
@@ -484,6 +488,15 @@ def execute_keyer(node, preview_single_frame: bool = False) -> bool:
             print(f"[CorridorKey] Baking full animated hint sequence to: {hint_pattern}")
             _bake_nuke_hint(hint_node, source_node, hint_pattern, first_frame, last_frame)
             hint_video_path = str(temp_hint_dir)
+        elif "Current Frame Keyframe" in hint_mode_val:
+            cur_f = max(first_frame, min(int(nuke.frame()), last_frame))
+            hint_frame_idx = max(0, cur_f - first_frame)
+            temp_hint_dir = out_dir / "_temp_hint"
+            temp_hint_dir.mkdir(parents=True, exist_ok=True)
+            hint_file_path = str(temp_hint_dir / f"frame_hint_f{cur_f}.png").replace("\\", "/")
+
+            print(f"[CorridorKey] Baking keyframe hint at frame {cur_f} (offset {hint_frame_idx}) to: {hint_file_path}")
+            _bake_nuke_hint(hint_node, source_node, hint_file_path, cur_f, cur_f)
         else:
             temp_hint_dir = out_dir / "_temp_hint"
             temp_hint_dir.mkdir(parents=True, exist_ok=True)
@@ -572,6 +585,7 @@ def execute_keyer(node, preview_single_frame: bool = False) -> bool:
         hann_chunk=hann_chunk,
         hann_stride=hann_stride,
         hint_first_frame=hint_file_path,
+        hint_frame=hint_frame_idx,
         hint_video=hint_video_path,
         carry_hint=carry_hint,
         hint_quality=hint_quality,
@@ -949,7 +963,7 @@ def create_corridorkeyer_node():
 
     hint_m = nuke.Enumeration_Knob(
         "hint_mode", "Hint Conditioning Mode",
-        ["First Frame Only (Fast)", "Full Animated Sequence (Roto)"]
+        ["First Frame Only (Fast)", "Current Frame Keyframe (Bidirectional)", "Full Animated Sequence (Roto)"]
     )
     group.addKnob(hint_m)
 
