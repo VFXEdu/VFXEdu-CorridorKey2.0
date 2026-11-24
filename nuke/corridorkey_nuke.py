@@ -729,43 +729,47 @@ def _on_success(node, input_path: str, out_dir: Path, output_format: str, first_
                     cutout_path = str(f).replace("\\", "/")
 
     # 1. Update internal Gizmo nodes if present
+    def _configure_read(r_node, path: str):
+        r_node.knob("file").setValue(path)
+        if output_format == "video":
+            num_f = max(1, last_frame - first_frame + 1)
+            r_node.knob("first").setValue(1)
+            r_node.knob("last").setValue(num_f)
+            r_node.knob("origfirst").setValue(1)
+            r_node.knob("origlast").setValue(num_f)
+            if r_node.knob("frame_mode"):
+                r_node.knob("frame_mode").setValue("start at")
+            if r_node.knob("frame"):
+                r_node.knob("frame").setValue(str(first_frame))
+        else:
+            r_node.knob("first").setValue(first_frame)
+            r_node.knob("last").setValue(last_frame)
+            r_node.knob("origfirst").setValue(first_frame)
+            r_node.knob("origlast").setValue(last_frame)
+            if r_node.knob("frame_mode"):
+                r_node.knob("frame_mode").setValue("expression")
+            if r_node.knob("frame"):
+                r_node.knob("frame").setValue("")
+        if r_node.knob("on_error"):
+            r_node.knob("on_error").setValue("black")
+        try:
+            r_node.knob("reload").execute()
+        except Exception:
+            pass
+
     try:
         with node:
             r_cutout = nuke.toNode("Read_Cutout")
             if r_cutout and cutout_path:
-                r_cutout.knob("file").setValue(cutout_path)
-                r_cutout.knob("first").setValue(first_frame)
-                r_cutout.knob("last").setValue(last_frame)
-                r_cutout.knob("origfirst").setValue(first_frame)
-                r_cutout.knob("origlast").setValue(last_frame)
-                try:
-                    r_cutout.knob("reload").execute()
-                except Exception:
-                    pass
+                _configure_read(r_cutout, cutout_path)
 
             r_alpha = nuke.toNode("Read_Alpha")
             if r_alpha and alpha_path:
-                r_alpha.knob("file").setValue(alpha_path)
-                r_alpha.knob("first").setValue(first_frame)
-                r_alpha.knob("last").setValue(last_frame)
-                r_alpha.knob("origfirst").setValue(first_frame)
-                r_alpha.knob("origlast").setValue(last_frame)
-                try:
-                    r_alpha.knob("reload").execute()
-                except Exception:
-                    pass
+                _configure_read(r_alpha, alpha_path)
 
             r_fg = nuke.toNode("Read_FG")
             if r_fg and fg_path:
-                r_fg.knob("file").setValue(fg_path)
-                r_fg.knob("first").setValue(first_frame)
-                r_fg.knob("last").setValue(last_frame)
-                r_fg.knob("origfirst").setValue(first_frame)
-                r_fg.knob("origlast").setValue(last_frame)
-                try:
-                    r_fg.knob("reload").execute()
-                except Exception:
-                    pass
+                _configure_read(r_fg, fg_path)
 
             sw = nuke.toNode("Switch_Output")
             if sw and node.knob("output_view"):
@@ -822,7 +826,8 @@ def _build_dag_node_tree(gizmo_node, alpha_path: str, fg_path: str, cutout_path:
         current_alpha = r_alpha
 
         cpy = nuke.nodes.Copy(xpos=gx, ypos=gy + 180, inputs=[r_fg, current_alpha])
-        cpy.knob("from0").setValue("rgba.alpha")
+        # 1-channel EXR alpha is mapped to rgba.red in Nuke; video/RGBA maps to rgba.red/alpha
+        cpy.knob("from0").setValue("rgba.red")
         cpy.knob("to0").setValue("rgba.alpha")
 
         pm = nuke.nodes.Premult(xpos=gx, ypos=gy + 240, inputs=[cpy])
@@ -1088,8 +1093,13 @@ def create_corridorkeyer_node():
 
         read_alpha = nuke.nodes.Read(name="Read_Alpha", xpos=400, ypos=100)
         read_alpha.knob("file").setValue("")
+        read_alpha.knob("on_error").setValue("black")
 
-        node_erode = nuke.nodes.FilterErode(name="Node_Erode", inputs=[read_alpha], xpos=400, ypos=160)
+        norm_alpha = nuke.nodes.Expression(name="Norm_Alpha", inputs=[read_alpha], xpos=400, ypos=130)
+        norm_alpha.knob("channel3").setValue("alpha")
+        norm_alpha.knob("expr3").setValue("max(r, a)")
+
+        node_erode = nuke.nodes.FilterErode(name="Node_Erode", inputs=[norm_alpha], xpos=400, ypos=170)
         node_erode.knob("channels").setValue("rgba.alpha")
         node_erode.knob("size").setExpression("parent.edge_erode")
         node_erode.knob("disable").setExpression("!parent.enable_edge_refine")

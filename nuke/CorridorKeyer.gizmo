@@ -79,6 +79,7 @@ Gizmo {
   xpos 0
   ypos 0
  }
+ set N_SOURCE [stack 0]
  Input {
   inputs 0
   name FrameHint
@@ -90,16 +91,24 @@ Gizmo {
   inputs 0
   file_type exr
   file ""
+  on_error black
   name Read_Alpha
   xpos 400
   ypos 100
+ }
+ Expression {
+  channel3 alpha
+  expr3 "max(r, a)"
+  name Norm_Alpha
+  xpos 400
+  ypos 130
  }
  FilterErode {
   channels rgba.alpha
   size {{parent.edge_erode}}
   name Node_Erode
   xpos 400
-  ypos 160
+  ypos 170
   disable {{!parent.enable_edge_refine}}
  }
  Blur {
@@ -130,35 +139,52 @@ Gizmo {
   xpos 400
   ypos 360
  }
+ set N_VIEW_ALPHA [stack 0]
  Read {
   inputs 0
   file_type exr
   file ""
+  on_error black
   name Read_FG
   xpos 250
   ypos 100
  }
- set N_READ_FG [stack 0]
+ Dot {
+  name Dot_FG
+  xpos 284
+  ypos 360
+ }
+ set N_DOT_FG [stack 0]
+ Read {
+  inputs 0
+  file_type exr
+  file ""
+  on_error black
+  name Read_Cutout
+  xpos 100
+  ypos 100
+ }
+ set N_READ_CUTOUT [stack 0]
  push $N_REFINED_ALPHA
+ push $N_READ_CUTOUT
  Copy {
   inputs 2
   from0 rgba.alpha
   to0 rgba.alpha
   name Copy_Refined_Alpha
-  xpos 250
+  xpos 100
   ypos 280
  }
  Premult {
   name Premult_FG
-  xpos 250
+  xpos 100
   ypos 360
  }
- push $N_READ_FG
- Dot {
-  name Dot_FG
-  xpos 180
-  ypos 360
- }
+ set N_PREMULT_CUTOUT [stack 0]
+ push $N_SOURCE
+ push $N_VIEW_ALPHA
+ push $N_DOT_FG
+ push $N_PREMULT_CUTOUT
  Switch {
   inputs 4
   which {{parent.output_view}}
