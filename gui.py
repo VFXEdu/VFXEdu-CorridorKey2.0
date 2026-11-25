@@ -2387,13 +2387,14 @@ class Window(QMainWindow):
                 'thumbs': thumbs,
             }
 
-        # Update filmstrip immediately
-        self.filmstrip.load_clip_metadata(n_frames, fps, thumbs)
-
-        # Search for any pre-rendered outputs for this clip in outputs/
+        # Search for any pre-rendered outputs for this clip BEFORE filmstrip.seek(0) caches frame 0
         self._detect_matched_results(clip_path)
 
-        # Display first frame in viewport
+        # Update filmstrip immediately (emits frame_changed(0) -> show_frame_in_viewport(0))
+        self.filmstrip.load_clip_metadata(n_frames, fps, thumbs)
+
+        # Ensure first frame is rendered cleanly with matched_results
+        self._viewport_frame_cache.clear()
         self.show_frame_in_viewport(0)
 
         # Dynamically diagnose VRAM requirement against real GPU hardware
@@ -2472,10 +2473,25 @@ class Window(QMainWindow):
             if self.matched_results:
                 return
 
+        def _folder_latest_mtime(p: Path) -> float:
+            try:
+                mt = p.stat().st_mtime
+                if p.is_dir():
+                    for child in p.iterdir():
+                        try:
+                            cmt = child.stat().st_mtime
+                            if cmt > mt:
+                                mt = cmt
+                        except OSError:
+                            pass
+                return mt
+            except OSError:
+                return 0.0
+
         try:
             items = sorted(
                 out_root.iterdir(),
-                key=lambda p: p.stat().st_mtime if p.exists() else 0.0,
+                key=_folder_latest_mtime,
                 reverse=True,
             )
             for item in items:
@@ -3995,6 +4011,9 @@ class Window(QMainWindow):
     def next_job(self):
         source, self.destination, args, self.current_opts = self.jobs.pop(0)
         self.current_source = source
+        # Clear previous render result cache so the upcoming render always loads fresh
+        self.matched_results.clear()
+        self._release_video_caps()
 
         # Synchronize UI selection, Viewport, and Filmstrip to this source clip
         for i in range(self.queue.count()):
