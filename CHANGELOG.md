@@ -6,15 +6,28 @@ GitHub 릴리즈 시 해당 버전의 내용이 릴리즈 노트 및 GUI 업데�
 
 ---
 
-## [v0.2.0] - 2026-11-24
+## [v0.2.1] - 2026-11-25
 
 ### 🚀 주요 업데이트 및 버그 수정 (Highlights)
 - **임의 프레임 키프레임 힌트(`--hint_frame`) & 양방향 Hann 전파 (Bidirectional Propagation) 탑재**
   - 기존에 첫 프레임(0번)에만 적용되던 단일 힌트 마스크를 **대상이 가장 잘 보이는 임의의 프레임**에 지정할 수 있도록 확장했습니다.
   - 힌트가 지정된 프레임을 포함한 앵커(Anchor) Hann 윈도우를 먼저 추론한 뒤, **앞쪽(역방향)과 뒤쪽(정방향)으로 양방향 전파**하여 카메라 이동으로 대상이 중간에 등장하는 샷도 정확하게 추출합니다.
   - **Desktop GUI**: 인스펙터에 `Hint Frame #` 및 `Current` 버튼을 추가하고, `Quick Brush` 에디터로 현재 뷰포트 프레임에 브러시를 칠해 적용하면 해당 프레임 번호가 자동 등록됩니다.
-  - **Desktop GUI 타임라인 In / Out 구간 편집**: 하단 필름스트립 타임라인에서 `[ In` / `Out ]` / `All` 버튼, `I` / `O` / `Space` 단축키, 또는 좌·우 드래그 핸들로 원하는 프레임 영역만 지정해 고속 키잉할 수 있으며, 선택 구간 내의 `Hint Frame #`도 상대 오프셋으로 자동 환산되고 EXR 출력 시 원본 시작 프레임 번호가 유지됩니다.
   - **Foundry Nuke**: `Hint Conditioning Mode`에 `Current Frame Keyframe (Bidirectional)` 모드를 추가하여 타임라인 현재 프레임의 RotoPaint/Roto 힌트를 양방향 전파할 수 있습니다.
+- **Desktop GUI 타임라인 In / Out 구간 편집 (NLE 스타일) 추가**
+  - 하단 필름스트립 타임라인에서 `[ In` / `Out ]` / `All` 버튼, `I` / `O` / `Space` 단축키, 또는 좌·우 드래그 핸들로 원하는 프레임 영역만 지정해 고속 키잉할 수 있습니다.
+  - 선택 구간 내의 `Hint Frame #`도 상대 오프셋으로 자동 환산되며, EXR 출력 시 원본 시작 프레임 번호가 유지됩니다.
+  - 편집 구간 렌더링 후 뷰포트에서 원본 프레임과 결과 프레임이 `start_offset` 기준으로 1:1 정확히 동기화되도록 수정했습니다.
+- **재렌더링 캐시 갱신 & Nuke 사용자 `menu.py` 보호 패치**
+  - **Desktop GUI**: 동일 클립을 설정 변경 후 재렌더링할 때 이전 결과 캐시가 남지 않도록 `next_job()` / `preview_input()` 캐시 초기화 및 폴더 내 최신 파일 기준 정렬을 적용했습니다.
+  - **Foundry Nuke**: 렌더 완료 및 `Reload Reads` 시 `nuke.clearRAMCache()`를 자동 호출해 덮어쓴 결과물이 뷰어에 즉시 반영되도록 개선했습니다.
+  - **Nuke 설치/업데이터 안전성 강화 (CRITICAL)**: `Install_To_Nuke.bat` 및 GUI 자동 업데이트 시 사용자의 기존 `~/.nuke/menu.py`를 절대 덮어쓰지 않도록 보호 처리했습니다.
+
+---
+
+## [v0.2.0] - 2026-11-24
+
+### 🚀 주요 업데이트 및 버그 수정 (Highlights)
 - **DaVinci Resolve / Fusion 브릿지 크래시 수정 및 v0.2.0 기능 완전 동기화**
   - Fusion 브릿지(`corridorkey_fusion.py`)에서 `ck_root` 선언 전 참조로 발생하던 `UnboundLocalError` 크래시를 수정했습니다.
   - DaVinci Resolve Edit/Color 다이얼로그 및 Fusion Fuse 노드에 `Despill Color (Green/Blue)`, `Despill Method (Average/Max/None)`, `AI Plate Scale (Model Scale)` 컨트롤을 추가하여 GUI/Nuke와 1:1 기능 패리티를 완성했습니다.
