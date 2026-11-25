@@ -55,9 +55,11 @@ def install(repo_root: Path) -> bool:
 
     init_file.write_text(new_content, encoding="utf-8")
 
-    # If user previously placed direct copies of CorridorKeyer files into ~/.nuke, update them too
+    # If user previously placed direct copies of CorridorKeyer files into ~/.nuke, update them too.
+    # IMPORTANT: NEVER overwrite ~/.nuke/menu.py or ~/.nuke/init.py — those belong to the user and
+    # may contain other Nuke plugins/scripts. Nuke automatically loads nuke/menu.py via pluginAddPath.
     import shutil
-    for fname in ["CorridorKeyer.gizmo", "corridorkey_nuke.py", "menu.py"]:
+    for fname in ["CorridorKeyer.gizmo", "corridorkey_nuke.py"]:
         dest = nuke_dir / fname
         src = nuke_plugin_dir / fname
         if dest.is_file() and src.is_file():

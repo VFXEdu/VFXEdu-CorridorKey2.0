@@ -266,6 +266,21 @@ class TestV0110Fixes(unittest.TestCase):
             self.assertEqual(win.matched_results.get("start_offset"), 142)
         win.close()
 
+    def test_install_nuke_never_overwrites_user_menu_py(self):
+        from unittest.mock import patch
+        from scripts import install_nuke
+
+        with tempfile.TemporaryDirectory() as td:
+            fake_nuke_dir = Path(td)
+            user_menu = fake_nuke_dir / "menu.py"
+            original_content = "# User custom Nuke menu\nimport my_custom_tool\n"
+            user_menu.write_text(original_content, encoding="utf-8")
+
+            with patch.object(install_nuke, "get_nuke_dir", return_value=fake_nuke_dir):
+                ok = install_nuke.install(ROOT)
+            self.assertTrue(ok)
+            self.assertEqual(user_menu.read_text(encoding="utf-8"), original_content)
+
 
 if __name__ == "__main__":
     unittest.main()
