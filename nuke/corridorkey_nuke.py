@@ -226,11 +226,15 @@ def open_output_folder(node):
 
 
 def reload_reads(node):
-    """Reload all internal Read nodes and refresh cache."""
+    """Reload all internal Read nodes and clear Nuke RAM cache so overwritten renders appear immediately."""
     if nuke is None or node is None:
         return
     reloaded = 0
     try:
+        try:
+            nuke.clearRAMCache()
+        except Exception:
+            pass
         with node:
             for rname in ("Read_Cutout", "Read_FG", "Read_Alpha"):
                 r = nuke.toNode(rname)
@@ -721,26 +725,39 @@ def _on_success(node, input_path: str, out_dir: Path, output_format: str, first_
     fg_path = ""
     cutout_path = ""
 
+    clip_stem = Path(input_path).stem.lower()
+    entries = sorted(
+        out_dir.iterdir(),
+        key=lambda p: (clip_stem in p.name.lower(), p.stat().st_mtime if p.exists() else 0.0),
+        reverse=True,
+    )
+
     if output_format == "exr":
-        for sub in out_dir.iterdir():
+        for sub in entries:
             if sub.is_dir():
-                sname = sub.name
-                if "alpha_exr" in sname:
+                sname = sub.name.lower()
+                if not alpha_path and "alpha_exr" in sname:
                     alpha_path = str(sub / "alpha_%06d.exr").replace("\\", "/")
-                elif "fg_exr" in sname:
+                elif not fg_path and "fg_exr" in sname:
                     fg_path = str(sub / "fg_%06d.exr").replace("\\", "/")
-                elif "cutout_exr" in sname:
+                elif not cutout_path and "cutout_exr" in sname:
                     cutout_path = str(sub / "cutout_%06d.exr").replace("\\", "/")
     else:
-        for f in out_dir.iterdir():
+        for f in entries:
             if f.is_file():
-                fname = f.name
-                if "alpha" in fname and fname.endswith(".mp4"):
+                fname = f.name.lower()
+                if not alpha_path and "alpha" in fname and fname.endswith(".mp4"):
                     alpha_path = str(f).replace("\\", "/")
-                elif "fg" in fname and fname.endswith(".mp4"):
+                elif not fg_path and "fg" in fname and fname.endswith(".mp4"):
                     fg_path = str(f).replace("\\", "/")
-                elif "cutout" in fname and fname.endswith((".mov", ".mp4")):
+                elif not cutout_path and "cutout" in fname and fname.endswith((".mov", ".mp4")):
                     cutout_path = str(f).replace("\\", "/")
+
+    # Clear Nuke RAM cache so overwritten files at the same path refresh immediately in Viewer
+    try:
+        nuke.clearRAMCache()
+    except Exception:
+        pass
 
     # 1. Update internal Gizmo nodes if present
     def _configure_read(r_node, path: str):
